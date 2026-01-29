@@ -1,0 +1,25 @@
+{
+  "name": "@friday/mattermost",
+  "version": "2026.1.27-beta.1",
+  "type": "module",
+  "description": "FRIDAY Mattermost channel plugin",
+  "friday": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "channel": {
+      "id": "mattermost",
+      "label": "Mattermost",
+      "selectionLabel": "Mattermost (plugin)",
+      "docsPath": "/channels/mattermost",
+      "docsLabel": "mattermost",
+      "blurb": "self-hosted Slack-style chat; install the plugin to enable.",
+      "order": 65
+    },
+    "install": {
+      "npmSpec": "@friday/mattermost",
+      "localPath": "extensions/mattermost",
+      "defaultChoice": "npm"
+    }
+  }
+}

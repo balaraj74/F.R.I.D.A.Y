@@ -1,0 +1,11 @@
+{
+  "name": "@friday/whatsapp",
+  "version": "2026.1.27-beta.1",
+  "type": "module",
+  "description": "FRIDAY WhatsApp channel plugin",
+  "friday": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

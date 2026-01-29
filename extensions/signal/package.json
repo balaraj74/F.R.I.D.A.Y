@@ -1,0 +1,11 @@
+{
+  "name": "@friday/signal",
+  "version": "2026.1.27-beta.1",
+  "type": "module",
+  "description": "FRIDAY Signal channel plugin",
+  "friday": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

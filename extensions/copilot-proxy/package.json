@@ -1,0 +1,11 @@
+{
+  "name": "@friday/copilot-proxy",
+  "version": "2026.1.27-beta.1",
+  "type": "module",
+  "description": "FRIDAY Copilot Proxy provider plugin",
+  "friday": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

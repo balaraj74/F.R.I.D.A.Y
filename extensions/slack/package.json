@@ -1,0 +1,11 @@
+{
+  "name": "@friday/slack",
+  "version": "2026.1.27-beta.1",
+  "type": "module",
+  "description": "FRIDAY Slack channel plugin",
+  "friday": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

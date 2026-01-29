@@ -1,0 +1,11 @@
+{
+  "name": "@friday/telegram",
+  "version": "2026.1.27-beta.1",
+  "type": "module",
+  "description": "FRIDAY Telegram channel plugin",
+  "friday": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

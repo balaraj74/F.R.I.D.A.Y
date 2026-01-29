@@ -1,0 +1,11 @@
+{
+  "name": "@friday/discord",
+  "version": "2026.1.27-beta.1",
+  "type": "module",
+  "description": "FRIDAY Discord channel plugin",
+  "friday": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

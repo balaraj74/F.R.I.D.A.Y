@@ -1,0 +1,11 @@
+{
+  "name": "@friday/imessage",
+  "version": "2026.1.27-beta.1",
+  "type": "module",
+  "description": "FRIDAY iMessage channel plugin",
+  "friday": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

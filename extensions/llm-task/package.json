@@ -1,0 +1,11 @@
+{
+  "name": "@friday/llm-task",
+  "version": "2026.1.27-beta.1",
+  "type": "module",
+  "description": "FRIDAY JSON-only LLM task plugin",
+  "friday": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@friday/line",
+  "version": "2026.1.27-beta.1",
+  "type": "module",
+  "description": "FRIDAY LINE channel plugin",
+  "friday": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "channel": {
+      "id": "line",
+      "label": "LINE",
+      "selectionLabel": "LINE (Messaging API)",
+      "docsPath": "/channels/line",
+      "docsLabel": "line",
+      "blurb": "LINE Messaging API bot for Japan/Taiwan/Thailand markets.",
+      "order": 75,
+      "quickstartAllowFrom": true
+    },
+    "install": {
+      "npmSpec": "@friday/line",
+      "localPath": "extensions/line",
+      "defaultChoice": "npm"
+    }
+  },
+  "devDependencies": {
+    "friday": "workspace:*"
+  }
+}
