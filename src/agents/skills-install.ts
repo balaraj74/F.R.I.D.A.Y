@@ -120,6 +120,10 @@ function buildInstallCommand(
       if (!spec.package) return { argv: null, error: "missing uv package" };
       return { argv: ["uv", "tool", "install", spec.package] };
     }
+    case "apt": {
+      if (!spec.package) return { argv: null, error: "missing apt package" };
+      return { argv: ["sudo", "apt-get", "install", "-y", spec.package] };
+    }
     case "download": {
       return { argv: null, error: "download install handled separately" };
     }

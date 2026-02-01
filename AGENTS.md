@@ -1,5 +1,5 @@
 # Repository Guidelines
-- Repo: https://github.com/friday/friday
+- Repo: https://github.com/balaraj74/F.R.I.D.A.Y
 - GitHub issues/comments/PR comments: use literal multiline strings or `-F - <<'EOF'` (or $'...') for real newlines; never embed "\\n".
 
 ## Project Structure & Module Organization
