@@ -188,8 +188,6 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 - Inspired by F.R.I.D.A.Y from the Marvel Cinematic Universe
 - Built with modern AI technologies
-- Powered by open-source community contributions
-
 ---
 
 <p align="center">
