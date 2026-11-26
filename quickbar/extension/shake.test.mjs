@@ -60,7 +60,7 @@ describe('ShakeDetector', () => {
     });
 
     it('ignores small hand tremor', () => {
-        expect(run(wave(2000, 8, 12))).toBeNull();
+        expect(run(wave(2000, 8, 4))).toBeNull();
     });
 
     it('ignores a slow wave', () => {
@@ -116,9 +116,9 @@ describe('ShakeDetector with a real hand', () => {
     });
 
     it('can be made stricter or looser from the settings', () => {
-        const small = wave(1200, 6, 25);
+        const small = wave(1200, 6, 15); // strokes of about 30 px
         expect(run(small, 8, new ShakeDetector({minStroke: 40}))).toBeNull();
-        expect(run(small, 8, new ShakeDetector({minStroke: 20, minSpeed: 400}))).not.toBeNull();
+        expect(run(small, 8, new ShakeDetector({minStroke: 10}))).not.toBeNull();
     });
 
     it('reports what it sees', () => {

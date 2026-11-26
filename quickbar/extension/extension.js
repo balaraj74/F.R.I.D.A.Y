@@ -55,6 +55,9 @@ export default class FridayQuickBar extends Extension {
         );
 
         this._stageId = global.stage.connect('captured-event', (_s, ev) => this._onStageEvent(ev));
+        const tracker = global.backend.get_cursor_tracker?.() ?? Meta.CursorTracker.get_for_display(global.display);
+        this._tracker = tracker;
+        this._trackerId = tracker.connect('position-invalidated', () => this._onPointerMoved());
 
         Main.wm.addKeybinding(
             'summon-shortcut',
@@ -69,6 +72,9 @@ export default class FridayQuickBar extends Extension {
         Main.wm.removeKeybinding('summon-shortcut');
         if (this._stageId) global.stage.disconnect(this._stageId);
         this._stageId = 0;
+        if (this._trackerId) this._tracker.disconnect(this._trackerId);
+        this._trackerId = 0;
+        this._tracker = null;
         for (const id of this._settingsIds ?? []) this._settings.disconnect(id);
         this._settingsIds = null;
         for (const id of this._timers ?? []) GLib.source_remove(id);
@@ -114,30 +120,6 @@ export default class FridayQuickBar extends Extension {
         // Never interfere with events: this only observes.
         if (!this._bar || this._bar.isOpen) return Clutter.EVENT_PROPAGATE;
         switch (ev.type()) {
-        case Clutter.EventType.MOTION:
-            if (this._shakeOn) {
-                // A button held down means a drag or a selection, not a shake.
-                if (ev.get_state() & Clutter.ModifierType.BUTTON1_MASK) {
-                    this._shake.reset();
-                } else {
-                    const [x, y] = ev.get_coords();
-                    const now = GLib.get_monotonic_time() / 1000;
-                    this._moves++;
-                    if (this._shake.push(x, y, now)) {
-                        if (this._shakeDebug) console.log('quickbar: shake detected');
-                        this._summon('shake');
-                    } else if (this._shakeDebug && now - this._lastDebug > 400) {
-                        // Only while the pointer is clearly doing something shake-like, to keep the log short.
-                        const m = this._shake.metrics();
-                        if (m.reversals >= 1 && m.speed > 300) {
-                            this._lastDebug = now;
-                            console.log(`quickbar: motion events=${this._moves} samples=${m.n} reversals=${m.reversals} ` +
-                                `range=${Math.round(m.mainRange)}px cross=${Math.round(m.crossRange)}px speed=${Math.round(m.speed)}px/s`);
-                        }
-                    }
-                }
-            }
-            break;
         case Clutter.EventType.KEY_PRESS:
         case Clutter.EventType.KEY_RELEASE:
             if (this._chordOn) this._onKey(ev);
@@ -146,6 +128,37 @@ export default class FridayQuickBar extends Extension {
             break;
         }
         return Clutter.EVENT_PROPAGATE;
+    }
+
+    /**
+     * Called whenever the pointer position changes, wherever the pointer is. Stage events are not
+     * enough: while the pointer is over an application window, Mutter hands the motion straight to
+     * that window and the stage never sees it. The cursor tracker still reports every move.
+     */
+    _onPointerMoved() {
+        if (!this._shakeOn || !this._bar || this._bar.isOpen) return;
+        const [x, y, mods] = global.get_pointer();
+        // A button held down means a drag or a selection, not a shake.
+        if (mods & Clutter.ModifierType.BUTTON1_MASK) {
+            this._shake.reset();
+            return;
+        }
+        const now = GLib.get_monotonic_time() / 1000;
+        this._moves++;
+        if (this._shake.push(x, y, now)) {
+            if (this._shakeDebug) console.log('quickbar: shake detected');
+            this._summon('shake');
+        } else if (this._shakeDebug && now - this._lastDebug > 300) {
+            // While the pointer travels a good distance, show what it looks like at a few stroke sizes.
+            const m = this._shake.metrics();
+            if (m.path > 120) {
+                this._lastDebug = now;
+                const at = px => this._shake.metrics(px).reversals;
+                console.log(`quickbar: motion path=${Math.round(m.path)}px speed=${Math.round(m.speed)}px/s ` +
+                    `range=${Math.round(m.mainRange)}px cross=${Math.round(m.crossRange)}px ` +
+                    `reversals@6=${at(6)} @10=${at(10)} @15=${at(15)} @25=${at(25)} @40=${at(40)}`);
+            }
+        }
     }
 
     _onKey(ev) {
@@ -198,14 +211,19 @@ export default class FridayQuickBar extends Extension {
         });
     }
 
-    async _summon(_source) {
-        if (!this._bar || this._bar.isOpen || this._summoning) return;
+    async _summon(source) {
+        if (!this._bar || this._bar.isOpen || this._summoning) {
+            console.log(`quickbar: summon (${source}) ignored: bar=${!!this._bar} open=${this._bar?.isOpen} summoning=${this._summoning}`);
+            return;
+        }
         this._summoning = true;
         try {
             const [px, py] = global.get_pointer();
+            console.log(`quickbar: summon (${source}) at pointer ${px},${py}`);
             const linked = this._link.connect(); // starts the daemon while the screenshot is taken
             // The picture comes first, so the bar never appears in it.
             const shot = await this._captureScreen();
+            console.log(`quickbar: screenshot ${shot ? 'taken' : 'FAILED'}`);
             if (!this._bar) return;
             this._bar.open(px, py);
             if (await linked) this._link.send({op: 'summon', shot});

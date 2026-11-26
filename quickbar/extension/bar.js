@@ -7,7 +7,9 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const BAR_WIDTH = 480;
-const MAX_HEIGHT = 460;
+const HEADER_ROW_HEIGHT = 96;
+const MIN_ANSWER_HEIGHT = 120;
+const MAX_ANSWER_HEIGHT = 340;
 const CURSOR_GAP = 14;
 const EDGE_GAP = 8;
 
@@ -128,13 +130,19 @@ export class QuickBar {
 
         const idx = this._monitorFor(px, py);
         const area = Main.layoutManager.getWorkAreaForMonitor(idx);
+        // The bar's top-left corner sits just below and right of the pointer. It only moves when
+        // the screen edge leaves no room, and then by the smallest amount needed.
+        const bottom = area.y + area.height - EDGE_GAP;
+        const minBody = HEADER_ROW_HEIGHT + MIN_ANSWER_HEIGHT;
         let x = px + CURSOR_GAP;
         let y = py + CURSOR_GAP;
         if (x + BAR_WIDTH > area.x + area.width - EDGE_GAP) x = px - CURSOR_GAP - BAR_WIDTH;
         x = Math.max(area.x + EDGE_GAP, Math.min(x, area.x + area.width - BAR_WIDTH - EDGE_GAP));
-        // Not enough room below the pointer for a full answer: open above it instead.
-        if (y + MAX_HEIGHT > area.y + area.height - EDGE_GAP) y = Math.max(area.y + EDGE_GAP, py - CURSOR_GAP - MAX_HEIGHT);
-        this._scroll.style = `max-height: ${MAX_HEIGHT - 110}px;`;
+        if (y + minBody > bottom) y = Math.max(area.y + EDGE_GAP, bottom - minBody);
+        // The answer area gets the room that is left below the bar's input row.
+        const answerMax = Math.max(MIN_ANSWER_HEIGHT, Math.min(MAX_ANSWER_HEIGHT, bottom - y - HEADER_ROW_HEIGHT));
+        this._scroll.style = `max-height: ${answerMax}px;`;
+        console.log(`quickbar: bar at ${x},${y} for pointer ${px},${py} on monitor ${idx} (work area ${area.x},${area.y} ${area.width}x${area.height})`);
         this._actor.set_position(x, y);
         this._actor.opacity = 0;
         this._actor.show();

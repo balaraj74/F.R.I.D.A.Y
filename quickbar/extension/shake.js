@@ -11,11 +11,11 @@
 
 export const SHAKE_DEFAULTS = Object.freeze({
     windowMs: 900,
-    minStroke: 40,
+    minStroke: 15,
     minReversals: 3,
     maxCrossRatio: 0.6,
     // A shake is fast; slow back-and-forth positioning is not.
-    minSpeed: 700,
+    minSpeed: 250,
     cooldownMs: 1500,
     evalEveryMs: 16,
 });
@@ -69,11 +69,12 @@ export class ShakeDetector {
     }
 
     /** What the recent path looks like; used by the decision and by the debug log. */
-    metrics() {
+    metrics(strokeOverride) {
         const n = this._t.length;
-        const empty = {n, reversals: 0, mainRange: 0, crossRange: 0, speed: 0};
+        const empty = {n, reversals: 0, mainRange: 0, crossRange: 0, speed: 0, path: 0};
         if (n < 8) return empty;
         const o = this._o;
+        const minStroke = strokeOverride ?? o.minStroke;
 
         let mx = 0;
         let my = 0;
@@ -122,20 +123,20 @@ export class ShakeDetector {
                 continue;
             }
             if (dir === 0) {
-                if (Math.abs(u - extreme) >= o.minStroke) {
+                if (Math.abs(u - extreme) >= minStroke) {
                     dir = u > extreme ? 1 : -1;
                     extreme = u;
                 }
             } else if (dir > 0) {
                 if (u > extreme) extreme = u;
-                else if (extreme - u >= o.minStroke) {
+                else if (extreme - u >= minStroke) {
                     reversals++;
                     dir = -1;
                     extreme = u;
                 }
             } else {
                 if (u < extreme) extreme = u;
-                else if (u - extreme >= o.minStroke) {
+                else if (u - extreme >= minStroke) {
                     reversals++;
                     dir = 1;
                     extreme = u;
@@ -143,7 +144,7 @@ export class ShakeDetector {
             }
         }
         const spanMs = Math.max(1, this._t[n - 1] - this._t[0]);
-        return {n, reversals, mainRange: maxU - minU, crossRange: maxW - minW, speed: (path * 1000) / spanMs};
+        return {n, reversals, mainRange: maxU - minU, crossRange: maxW - minW, speed: (path * 1000) / spanMs, path};
     }
 
     _looksShaken() {

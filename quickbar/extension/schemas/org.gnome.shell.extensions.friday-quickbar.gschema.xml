@@ -14,8 +14,8 @@
       <summary>Keyboard shortcut that summons the bar (no side effects, unlike the F + Space chord)</summary>
     </key>
     <key name="shake-min-stroke" type="i">
-      <range min="10" max="400"/>
-      <default>40</default>
+      <range min="4" max="400"/>
+      <default>15</default>
       <summary>Smallest back-and-forth stroke that counts, in pixels</summary>
     </key>
     <key name="shake-reversals" type="i">
@@ -25,7 +25,7 @@
     </key>
     <key name="shake-min-speed" type="i">
       <range min="100" max="4000"/>
-      <default>700</default>
+      <default>250</default>
       <summary>Slowest average pointer speed that counts as a shake, in pixels per second</summary>
     </key>
     <key name="shake-debug" type="b">
