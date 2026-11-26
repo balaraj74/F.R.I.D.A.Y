@@ -11,7 +11,8 @@ const VOICE_DIR = path.join(HOME, '.friday', 'voice');
 const PROXY_VERSION = '2.8.7';
 
 // The HUD owns 18950-18952. The quick bar uses its own ports when it has to start its own copy.
-export const PORTS = {hudStt: 18950, hudSupertonic: 18952, ownStt: 18960, ownSupertonic: 18962, brain: 8080};
+// 18960 and 18961 are SearXNG and n8n, so the quick bar's own copies live above them.
+export const PORTS = {hudStt: 18950, hudSupertonic: 18952, ownStt: 18965, ownSupertonic: 18966, brain: 8080};
 
 export const tcpUp = (port, host = '127.0.0.1', timeoutMs = 600) =>
   new Promise((resolve) => {
@@ -43,6 +44,17 @@ async function waitFor(check, timeoutMs, stepMs = 400) {
     await sleep(stepMs);
   }
   return false;
+}
+
+/** True when FRIDAY runs as always-on systemd user services (see scripts/always-on.sh). */
+export function alwaysOn(home = HOME) {
+  return fs.existsSync(path.join(home, '.friday', 'always-on'));
+}
+
+function systemctlUser(...args) {
+  return new Promise((resolve) => {
+    execFile('systemctl', ['--user', ...args], {timeout: 20_000}, (err) => resolve(!err));
+  });
 }
 
 function tmuxStart(name, command) {
@@ -97,6 +109,13 @@ export class Services {
   ensureGateway(status = () => {}) {
     return this._once('gateway', async () => {
       if (await tcpUp(this.gatewayPort)) return {ok: true};
+      if (alwaysOn()) {
+        // The services are supposed to be up already; ask systemd to bring back whatever is not.
+        status('Starting FRIDAY...');
+        await systemctlUser('start', 'friday-proxy.service', 'friday-gateway.service');
+        const ok = await waitFor(() => tcpUp(this.gatewayPort), 90_000, 700);
+        return ok ? {ok: true} : {ok: false, error: 'The gateway did not start within 90 seconds.'};
+      }
       if (!(await this.brainUp())) {
         status('Starting the reasoning engine...');
         const patch = path.join(this.repoDir, 'scripts', 'patch-antigravity-proxy.sh');
@@ -152,9 +171,22 @@ export class Services {
       const runtime = readHudVoiceRuntime();
       if (runtime?.token) {
         const base = `http://127.0.0.1:${runtime.ports?.supertonic ?? PORTS.hudSupertonic}`;
-        const res = await httpOk(`${base}/health`);
+        const headers = {'x-friday-voice-token': runtime.token};
+        let res = await httpOk(`${base}/health`);
+        if (!res && runtime.managed && alwaysOn()) {
+          await systemctlUser('start', 'friday-supertonic.service');
+          await waitFor(async () => !!(await httpOk(`${base}/health`)), 60_000, 700);
+          res = await httpOk(`${base}/health`);
+        }
         if (res && (await res.json().catch(() => ({}))).tts) {
-          return {base, headers: {'x-friday-voice-token': runtime.token}};
+          // A wrong token is refused before the text is read; an empty text then answers 400.
+          const probe = await fetch(`${base}/tts`, {
+            method: 'POST',
+            headers: {'content-type': 'application/json', ...headers},
+            body: JSON.stringify({text: ''}),
+            signal: AbortSignal.timeout(3000),
+          }).catch(() => null);
+          if (probe && probe.status !== 401) return {base, headers};
         }
       }
       const base = `http://127.0.0.1:${PORTS.ownSupertonic}`;

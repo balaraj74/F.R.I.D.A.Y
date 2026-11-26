@@ -22,6 +22,22 @@ GNOME Shell extension (extension/)        daemon (daemon/, Node, started on dema
   If the HUD is open they are reused, otherwise the daemon starts its own copies on separate ports.
 - **Chat history:** questions go to the session `agent:main:quickbar`, apart from your main chat.
 
+## Always on (recommended)
+
+`scripts/always-on.sh install` turns FRIDAY's engine into systemd user services: the reasoning proxy,
+the gateway, speech to text, the voice (Supertonic on the GPU when CUDA is installed), this bar's helper
+and the helper containers. They start at login, restart if they crash, and closing the HUD leaves them
+running, so the bar answers straight from the gateway with no start-up wait and the voice is already loaded.
+
+```
+scripts/always-on.sh status      # what is running
+scripts/always-on.sh uninstall   # back to "FRIDAY runs only while the HUD is open"
+```
+
+Speech to text (whisper.cpp) runs on the CPU in this build, about 1.3 s for a short question; the voice
+runs on the GPU and speaks the first sentence in about 0.4 s. Idle cost is roughly 1 GB of GPU memory and
+1.5 GB of RAM. Without always-on, the bar starts whatever is missing the first time you summon it.
+
 ## Install
 
 `quickbar/install.sh` (the main `install.sh` runs it on GNOME). Log out and in once afterwards;

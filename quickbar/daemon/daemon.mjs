@@ -51,7 +51,20 @@ const send = (obj) => {
   if (client && !client.destroyed) client.write(`${JSON.stringify(obj)}\n`);
 };
 
+// Resident mode (systemd service): never idle out, and keep the gateway link warm so the first
+// question after a long pause is sent with no connection delay.
+const resident = process.env.FRIDAY_QUICKBAR_RESIDENT === '1';
+
+function keepGatewayWarm() {
+  const tick = () => {
+    if (!gateway.connected) gateway.connectWithRetry(2, 1000).catch(() => {});
+  };
+  tick();
+  setInterval(tick, 10_000).unref();
+}
+
 function touch() {
+  if (resident) return;
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
     services.stopVoice();
@@ -241,6 +254,10 @@ async function main() {
   server.listen(SOCKET_PATH, () => {
     fs.chmodSync(SOCKET_PATH, 0o600);
     touch();
+    if (resident) {
+      keepGatewayWarm();
+      if (speakEnabled) services.ensureTts().catch(() => {});
+    }
   });
 }
 

@@ -64,12 +64,24 @@ function findNode() {
 }
 
 function createLocalVoice() {
-  const token = crypto.randomBytes(16).toString('hex');
+  // Always-on mode (scripts/always-on.sh) runs the voice servers as systemd services that share one
+  // token, published in runtime.json with "managed": true. Then the HUD joins them instead of
+  // starting its own copies, and leaves them running when it closes.
+  const RUNTIME_FILE = path.join(VOICE_DIR, 'runtime.json');
+  let managed = null;
+  try {
+    const found = JSON.parse(fs.readFileSync(RUNTIME_FILE, 'utf8'));
+    if (found && found.managed === true && typeof found.token === 'string' && found.token) managed = found;
+  } catch {
+    // no managed runtime
+  }
+  const token = managed ? managed.token : crypto.randomBytes(16).toString('hex');
   const procs = {};
+  // A service counts as available when we started it, or when always-on mode runs it for us.
+  const has = (name) => Boolean(procs[name]) || managed !== null;
   let disposed = false;
   // Lets the desktop quick bar reuse these servers while the HUD is open (owner-only file).
-  const RUNTIME_FILE = path.join(VOICE_DIR, 'runtime.json');
-  try {
+  if (!managed) try {
     fs.mkdirSync(VOICE_DIR, { recursive: true });
     fs.writeFileSync(
       RUNTIME_FILE,
@@ -80,7 +92,10 @@ function createLocalVoice() {
     // The quick bar then starts its own voice servers.
   }
 
-  function supervise(name, cmd, args, opts) {
+  /** Any HTTP answer (even an error status) means something is serving that port. */
+  const portAnswers = (port) =>
+    fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1500) }).then(() => true, () => false);
+  function supervise(name, cmd, args, opts, port) {
     let restarts = 0;
     const start = () => {
       if (disposed) return;
@@ -97,7 +112,14 @@ function createLocalVoice() {
         if (restarts <= 5) setTimeout(start, Math.min(30000, 2000 * restarts));
       });
     };
-    start();
+    if (managed && port) {
+      // The always-on service should already be serving; only start our own if it is not.
+      setTimeout(async () => {
+        if (!disposed && !(await portAnswers(port))) start();
+      }, 4000);
+    } else {
+      start();
+    }
   }
 
   const sttAvailable = fs.existsSync(WHISPER_BIN) && fs.existsSync(WHISPER_MODEL);
@@ -106,7 +128,7 @@ function createLocalVoice() {
   if (sttAvailable) {
     const args = ['-m', WHISPER_MODEL, '--host', '127.0.0.1', '--port', String(STT_PORT), '-t', '8', '-bs', '1', '-bo', '1', '-fa'];
     if (fs.existsSync(WHISPER_VAD)) args.push('--vad', '--vad-model', WHISPER_VAD);
-    supervise('whisper', WHISPER_BIN, args, {});
+    supervise('whisper', WHISPER_BIN, args, {}, STT_PORT);
   }
   if (voiceAvailable) {
     // Keep the server script in the repo; run it next to its dependencies.
@@ -125,14 +147,14 @@ function createLocalVoice() {
         FRIDAY_VOICE_TOKEN: token,
         FRIDAY_VAD_MODEL: path.join(VOICE_DIR, 'models', 'silero_vad.onnx'),
       },
-    });
+    }, VOICE_PORT);
   }
 
   const supertonicAvailable = fs.existsSync(SUPERTONIC_PY);
   if (supertonicAvailable) {
     supervise('supertonic', SUPERTONIC_PY, [path.join(__dirname, '..', 'voice', 'supertonic-server.py')], {
       env: { ...process.env, FRIDAY_SUPERTONIC_PORT: String(SUPERTONIC_PORT), FRIDAY_VOICE_TOKEN: token },
-    });
+    }, SUPERTONIC_PORT);
   }
 
   async function supertonicReady() {
@@ -171,7 +193,7 @@ function createLocalVoice() {
 
   /** Local Whisper transcript, or null when unavailable / nothing heard. */
   async function transcribe(base64Audio) {
-    if (!sttAvailable || !procs.whisper) return null;
+    if (!sttAvailable || !has('whisper')) return null;
     const wav = await toWav16k(Buffer.from(base64Audio, 'base64'));
     const seconds = Math.max(0, (wav.length - 44) / 32000);
     // Size Whisper's window to the clip (50 frames per second): short commands decode ~3x faster.
@@ -204,11 +226,11 @@ function createLocalVoice() {
     if (settings.engine === 'edge') return null;
     let wav = null;
     // Supertonic first: it can actually sigh and laugh. Only it gets the <tags>.
-    if (settings.ttsModel !== 'kokoro' && procs.supertonic) {
+    if (settings.ttsModel !== 'kokoro' && has('supertonic')) {
       const speed = settings.expressive === false ? settings.supertonicSpeed : expressiveSpeed(text, settings.supertonicSpeed);
       wav = await ttsRequest(SUPERTONIC_PORT, { text, voice: settings.supertonicVoice, speed }).catch(() => null);
     }
-    if (!wav && voiceAvailable && procs.kokoro) {
+    if (!wav && voiceAvailable && has('kokoro')) {
       const plain = text.replace(/\s*<(sigh|breath|laugh)>\s*/gi, ' ').trim();
       if (plain) wav = await ttsRequest(VOICE_PORT, { text: plain, voice: settings.kokoroVoice, speed: settings.speed || 1 }).catch(() => null);
     }
@@ -258,17 +280,19 @@ function createLocalVoice() {
       const health = await voiceHealth();
       return {
         vadUrl: health?.vad ? `ws://127.0.0.1:${VOICE_PORT}/vad?token=${token}` : null,
-        stt: sttAvailable && Boolean(procs.whisper),
+        stt: sttAvailable && has('whisper'),
         tts: Boolean(health?.tts) && readSettings().engine !== 'edge',
       };
     },
     settings: readSettings,
     dispose() {
       disposed = true;
-      try {
-        fs.rmSync(RUNTIME_FILE, { force: true });
-      } catch {
-        // already gone
+      if (!managed) {
+        try {
+          fs.rmSync(RUNTIME_FILE, { force: true });
+        } catch {
+          // already gone
+        }
       }
       for (const p of Object.values(procs)) p?.kill('SIGTERM');
     },

@@ -17,6 +17,7 @@
 #
 #  Options:  --name "Rahul"   --address "Boss"   --no-voice   --yes (no questions)
 #            --autostart (register a systemd --user unit under ~/.config/systemd/user)
+#            --always-on (keep the gateway, proxy and voice running even when the HUD is closed)
 #            --verify-only (skip steps 1-6; only run the checks and the optional auto-start)
 # ==============================================================================
 set -euo pipefail
@@ -31,6 +32,7 @@ ADDRESS=""
 WITH_VOICE=1
 ASSUME_YES=0
 AUTOSTART=0
+ALWAYS_ON=0
 VERIFY_ONLY=0
 
 while [[ $# -gt 0 ]]; do
@@ -39,9 +41,10 @@ while [[ $# -gt 0 ]]; do
     --address) ADDRESS="$2"; shift 2 ;;
     --no-voice) WITH_VOICE=0; shift ;;
     --autostart) AUTOSTART=1; shift ;;
+    --always-on) ALWAYS_ON=1; shift ;;
     --verify-only) VERIFY_ONLY=1; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
-    -h|--help) sed -n 2,20p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,21p "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -298,6 +301,10 @@ if [[ $AUTOSTART -eq 1 ]]; then
   register_autostart || die "FRIDAY is installed, but auto-start registration failed (see above). Fix it and re-run with --autostart."
 fi
 
+if [[ $ALWAYS_ON -eq 1 ]]; then
+  step "Always-on services"
+  bash "$DIR/scripts/always-on.sh" install || warn "always-on services not installed (see above); FRIDAY itself is fine"
+fi
 echo -e "\n${G}${B}FRIDAY is installed.${N}\n"
 echo -e "${B}One more step: connect the brain to a Google account (opens a browser):${N}"
 echo -e "  npx -y antigravity-claude-proxy@$PROXY_VERSION accounts add\n"

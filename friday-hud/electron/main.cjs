@@ -606,6 +606,10 @@ app.whenReady().then(() => {
       return false;
     }
   };
+  // Always-on mode (scripts/always-on.sh): systemd keeps the proxy, gateway and voice running, so
+  // the HUD only asks systemd to start them and never stops them when it closes.
+  const systemctlUser = (...args) =>
+    new Promise((resolve) => execFile('systemctl', ['--user', ...args], { timeout: 20000 }, (err) => resolve(!err)));
   const startTmux = (name, command) =>
     new Promise((resolve) => {
       execFile('tmux', ['kill-session', '-t', name], () => {
@@ -616,6 +620,11 @@ app.whenReady().then(() => {
   async function startBrain() {
     if (await brainAnswers()) return { ok: true, already: true, ms: 0 };
     const started = Date.now();
+    if (isAlwaysOn()) {
+      await systemctlUser('start', 'friday-proxy.service');
+      const up = await waitFor(brainAnswers, 120000);
+      return up ? { ok: up, ms: Date.now() - started } : { ok: up, error: 'The reasoning engine did not answer within 2 minutes (friday-proxy.service).' };
+    }
     // Pinned: @latest would execute whatever was last published to npm.
     // Raise the proxy's hard-coded 16k Gemini output cap first (re-applied after npx re-downloads).
     const patchScript = path.join(repoRootDir, 'scripts', 'patch-antigravity-proxy.sh');
@@ -631,6 +640,11 @@ app.whenReady().then(() => {
     const cfg = getGatewayConfig();
     if (await checkGatewayPort(cfg.port)) return { ok: true, already: true, ms: 0 };
     const started = Date.now();
+    if (isAlwaysOn()) {
+      await systemctlUser('start', 'friday-gateway.service');
+      const up = await waitFor(() => checkGatewayPort(cfg.port), 90000);
+      return up ? { ok: up, ms: Date.now() - started } : { ok: up, error: 'The gateway did not start within 90 s (friday-gateway.service).' };
+    }
     await startTmux('friday', `cd '${repoRootDir}' && bash -l -c 'pnpm friday gateway --force'`);
     const ok = await waitFor(() => checkGatewayPort(cfg.port), 90000);
     return ok ? { ok, ms: Date.now() - started } : { ok, error: 'The gateway did not start within 90 s (tmux session friday).' };
@@ -691,7 +705,10 @@ app.whenReady().then(() => {
     try {
       watch.disarm('gateway'); // stopped on purpose: don't bring it back
       const stopBin = path.join(os.homedir(), '.local', 'bin', 'friday-stop');
-      if (fs.existsSync(stopBin)) {
+      if (isAlwaysOn()) {
+        // Explicit stop from the HUD: stop the service too, or systemd would bring it straight back.
+        await systemctlUser('stop', 'friday-gateway.service');
+      } else if (fs.existsSync(stopBin)) {
         execSync(`bash "${stopBin}" 2>/dev/null || true`);
       } else {
         // By port and session, as on shutdown (a `pkill -f` pattern would match its own shell).
@@ -1338,10 +1355,16 @@ async function stopPids(pids, graceMs) {
 
 const killTmuxSession = (name) => new Promise((resolve) => execFile('tmux', ['kill-session', '-t', name], () => resolve()));
 
+/** True when systemd keeps FRIDAY running on its own (marker written by scripts/always-on.sh). */
+function isAlwaysOn() {
+  return fs.existsSync(path.join(os.homedir(), '.friday', 'always-on'));
+}
 async function shutdownFriday() {
   stopWatchdog(); // don't 'repair' services we are deliberately stopping
   voiceControl?.dispose();
   localVoice?.dispose();
+  // Always-on: closing the window closes only the window. The gateway, proxy and voice stay up.
+  if (isAlwaysOn()) return;
   const gatewayPort = (() => {
     try { return getGatewayConfig().port; } catch { return 18789; }
   })();
