@@ -1,0 +1,8 @@
+{
+  "uuid": "friday-quickbar@friday.balaraj74",
+  "name": "FRIDAY Quick Bar",
+  "description": "Shake the mouse (or press F + Space) to ask FRIDAY about what is on your screen. Type or speak; the answer streams in and is read aloud.",
+  "shell-version": ["49", "50"],
+  "settings-schema": "org.gnome.shell.extensions.friday-quickbar",
+  "version": 1
+}

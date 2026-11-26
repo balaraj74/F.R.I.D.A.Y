@@ -105,3 +105,6 @@ voice-samples/
 /scripts/rebrand-to-friday.sh
 /scripts/rename-files-friday.sh
 /tests/test_skill_retrieval.py
+
+# Built by quickbar/install.sh
+/quickbar/extension/schemas/gschemas.compiled

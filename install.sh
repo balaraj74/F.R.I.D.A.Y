@@ -286,6 +286,11 @@ EOF
 ok "added FRIDAY to your app menu"
 
 # ------------------------------------------------------------------------------
+# Quick bar: shake the mouse to ask FRIDAY about the screen. GNOME only; a failure here never fails the install.
+if command -v gnome-shell >/dev/null 2>&1; then
+  step "Quick bar (shake-to-summon, GNOME)"
+  bash "$DIR/quickbar/install.sh" || warn "quick bar not installed (see above); FRIDAY itself is fine"
+fi
 step "Verifying job engine, design tooling and health monitor"
 verify_components
 if [[ $AUTOSTART -eq 1 ]]; then

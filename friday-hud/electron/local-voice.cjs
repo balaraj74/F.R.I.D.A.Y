@@ -67,6 +67,18 @@ function createLocalVoice() {
   const token = crypto.randomBytes(16).toString('hex');
   const procs = {};
   let disposed = false;
+  // Lets the desktop quick bar reuse these servers while the HUD is open (owner-only file).
+  const RUNTIME_FILE = path.join(VOICE_DIR, 'runtime.json');
+  try {
+    fs.mkdirSync(VOICE_DIR, { recursive: true });
+    fs.writeFileSync(
+      RUNTIME_FILE,
+      JSON.stringify({ token, pid: process.pid, ports: { stt: STT_PORT, kokoro: VOICE_PORT, supertonic: SUPERTONIC_PORT } }),
+      { mode: 0o600 },
+    );
+  } catch {
+    // The quick bar then starts its own voice servers.
+  }
 
   function supervise(name, cmd, args, opts) {
     let restarts = 0;
@@ -253,6 +265,11 @@ function createLocalVoice() {
     settings: readSettings,
     dispose() {
       disposed = true;
+      try {
+        fs.rmSync(RUNTIME_FILE, { force: true });
+      } catch {
+        // already gone
+      }
       for (const p of Object.values(procs)) p?.kill('SIGTERM');
     },
   };

@@ -28,6 +28,7 @@ export default defineConfig({
       "friday-hud/src/design-review/**/*.test.{ts,tsx}",
       "friday-hud/src/jobs/**/*.test.{ts,tsx}",
       "test/format-error.test.ts",
+      "quickbar/**/*.test.mjs",
       // Engine track: Eval_Suite and Chaos_Suite (mocked models, fakes only).
       "tests/jobs-evals/**/*.test.ts",
       "tests/jobs-chaos/**/*.test.ts",

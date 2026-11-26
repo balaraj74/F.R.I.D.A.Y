@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.friday-quickbar" path="/org/gnome/shell/extensions/friday-quickbar/">
+    <key name="shake-enabled" type="b">
+      <default>true</default>
+      <summary>Summon with a mouse shake</summary>
+    </key>
+    <key name="chord-enabled" type="b">
+      <default>true</default>
+      <summary>Summon by holding F and Space together</summary>
+    </key>
+    <key name="summon-shortcut" type="as">
+      <default>["&lt;Control&gt;&lt;Alt&gt;space"]</default>
+      <summary>Keyboard shortcut that summons the bar (no side effects, unlike the F + Space chord)</summary>
+    </key>
+  </schema>
+</schemalist>
