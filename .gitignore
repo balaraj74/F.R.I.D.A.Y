@@ -101,3 +101,7 @@ voice-samples/
 # Installer templates are generic and must be published
 !/templates/friday-workspace/IDENTITY.md
 !/templates/friday-workspace/USER.md
+/eval_tasks.*.jsonl
+/scripts/rebrand-to-friday.sh
+/scripts/rename-files-friday.sh
+/tests/test_skill_retrieval.py
