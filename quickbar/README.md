@@ -22,6 +22,16 @@ GNOME Shell extension (extension/)        daemon (daemon/, Node, started on dema
   If the HUD is open they are reused, otherwise the daemon starts its own copies on separate ports.
 - **Chat history:** questions go to the session `agent:main:quickbar`, apart from your main chat.
 
+## How the bar behaves
+
+It is an overlay, not a dialog. It floats above your windows next to the pointer and nothing else is
+blocked: you can click, scroll and type in the windows behind it. It stays open until you press Esc or
+the close button. Click the bar to type in it; click a window and your typing goes there again.
+
+The card is frosted glass (the background behind it is blurred) with a light that runs around its edge,
+in Google's four colours. The light is slow while idle, fast while FRIDAY is thinking, and pulses while
+she speaks.
+
 ## Always on (recommended)
 
 `scripts/always-on.sh install` turns FRIDAY's engine into systemd user services: the reasoning proxy,

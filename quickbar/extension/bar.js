@@ -1,17 +1,37 @@
-// The floating command bar: an input row, a mic button and a streaming answer area, placed next
-// to the pointer. Plain St widgets in the shell process, so it appears with no startup cost.
+// The floating command bar: a frosted-glass card next to the pointer, with an animated light running
+// around its edge. It is an overlay, not a dialog: windows behind it stay clickable and the bar stays
+// open until you close it. Click the bar to type in it; click a window and typing goes there again.
 import Clutter from 'gi://Clutter';
+import GLib from 'gi://GLib';
 import Pango from 'gi://Pango';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-const BAR_WIDTH = 480;
-const HEADER_ROW_HEIGHT = 96;
-const MIN_ANSWER_HEIGHT = 120;
-const MAX_ANSWER_HEIGHT = 340;
+import {colorAt, glowFrame, intensityAt, roundedRectPoints} from './glow.js';
+
+const CARD_WIDTH = 500;
+const CARD_RADIUS = 24;
+const PAD = 24; // room around the card for the light
 const CURSOR_GAP = 14;
 const EDGE_GAP = 8;
+const HEADER_ROW_HEIGHT = 104;
+const MIN_ANSWER_HEIGHT = 120;
+const MAX_ANSWER_HEIGHT = 340;
+const GLOW_SEGMENTS = 96;
+const GLOW_FRAME_MS = 33;
+// Cairo constants (the shell does not export them): operator SOURCE replaces instead of blending,
+// so overlapping round caps never double up into visible beads.
+const CAIRO_OPERATOR_SOURCE = 1;
+const CAIRO_LINE_CAP_ROUND = 1;
+const GLOW_LAYERS = [
+    {width: 22, alpha: 0.2},
+    {width: 12, alpha: 0.36},
+    {width: 5, alpha: 0.8},
+    {width: 2, alpha: 1},
+];
+// The light runs on a path a little outside the card's edge, so it hugs the glass instead of hiding under it.
+const GLOW_OUTSET = 3;
 
 /** Light cleanup so markdown reads cleanly in a plain label. */
 export function displayText(text) {
@@ -34,15 +54,18 @@ export class QuickBar {
      */
     constructor(handlers) {
         this._h = handlers;
-        this._actor = null;
-        this._grab = null;
-        this._pinned = false;
+        this._root = null;
+        this._card = null;
         this._recording = false;
-        this._outsideId = 0;
+        this._mode = 'idle';
+        this._glowTimer = 0;
+        this._focusId = 0;
+        this._outline = null;
+        this._t0 = GLib.get_monotonic_time();
     }
 
     get isOpen() {
-        return !!this._actor;
+        return !!this._root;
     }
 
     _monitorFor(x, y) {
@@ -52,20 +75,49 @@ export class QuickBar {
     }
 
     _build() {
-        const bar = new St.BoxLayout({style_class: 'fqb-bar', vertical: true, reactive: true, width: BAR_WIDTH});
+        const root = new St.Widget({
+            style_class: 'fqb-root',
+            layout_manager: new Clutter.BinLayout(),
+            reactive: false,
+            width: CARD_WIDTH + 2 * PAD,
+        });
+
+        // Layer 1: the light. Drawn with Cairo, repainted about 30 times a second while the bar is open.
+        this._glow = new St.DrawingArea({style_class: 'fqb-glow', x_expand: true, y_expand: true, reactive: false});
+        this._glow.connect('repaint', area => this._paintGlow(area));
+
+        // Layer 2: the glass card.
+        const card = new St.BoxLayout({
+            style_class: 'fqb-card',
+            vertical: true,
+            reactive: true,
+            can_focus: false,
+            x_expand: true,
+            y_expand: true,
+            style: `margin: ${PAD}px;`,
+        });
+        try {
+            // Blurs whatever is behind the card, which is what makes it look like glass.
+            card.add_effect_with_name('fqb-blur', new Shell.BlurEffect({
+                radius: 28,
+                brightness: 1.0,
+                mode: Shell.BlurMode.BACKGROUND,
+            }));
+        } catch (e) {
+            console.log(`quickbar: blur unavailable: ${e.message}`);
+        }
 
         const header = new St.BoxLayout({style_class: 'fqb-header'});
         this._title = new St.Label({text: 'FRIDAY', style_class: 'fqb-title', y_align: Clutter.ActorAlign.CENTER});
+        this._title.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
         this._status = new St.Label({text: '', style_class: 'fqb-status', y_expand: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
         this._status.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         this._speakerBtn = this._iconButton('audio-volume-high-symbolic', () => this._h.onSilence(), 'Stop speaking');
         this._speakerBtn.hide();
-        this._pinBtn = this._iconButton('view-pin-symbolic', () => this._togglePin(), 'Keep open');
         const closeBtn = this._iconButton('window-close-symbolic', () => this.close(), 'Close');
         header.add_child(this._title);
         header.add_child(this._status);
         header.add_child(this._speakerBtn);
-        header.add_child(this._pinBtn);
         header.add_child(closeBtn);
 
         const row = new St.BoxLayout({style_class: 'fqb-row'});
@@ -76,6 +128,8 @@ export class QuickBar {
             x_expand: true,
         });
         this._entry.clutter_text.connect('activate', () => this._submit());
+        // Clicking the entry (or anywhere on the card) sends the keyboard here.
+        this._entry.clutter_text.connect('key-focus-in', () => this._takeKeyboard());
         this._micBtn = this._iconButton('audio-input-microphone-symbolic', () => this._toggleMic(), 'Speak');
         this._micBtn.add_style_class_name('fqb-mic');
         row.add_child(this._entry);
@@ -102,11 +156,19 @@ export class QuickBar {
         this._scroll.add_child(body);
         this._scroll.hide();
 
-        bar.add_child(header);
-        bar.add_child(row);
-        bar.add_child(this._scroll);
-        bar.connect('key-press-event', (_a, ev) => this._onKey(ev));
-        return bar;
+        card.add_child(header);
+        card.add_child(row);
+        card.add_child(this._scroll);
+        card.connect('key-press-event', (_a, ev) => this._onKey(ev));
+        card.connect('button-press-event', () => {
+            this._takeKeyboard();
+            return Clutter.EVENT_PROPAGATE;
+        });
+
+        root.add_child(card);
+        root.add_child(this._glow); // above the card: it also covers the blur's square corners
+        this._card = card;
+        return root;
     }
 
     _iconButton(icon, onClick, accessibleName) {
@@ -121,76 +183,99 @@ export class QuickBar {
         return btn;
     }
 
+    // ---- keyboard: an overlay, not a modal grab ----
+
+    /** Typing goes to the bar. Windows keep their place and stay clickable. */
+    _takeKeyboard() {
+        if (!this._root) return;
+        global.stage.set_key_focus(this._entry.clutter_text);
+        global.display.unset_input_focus(global.get_current_time());
+    }
+
+    /** A window was clicked: give typing back to it. The bar stays where it is. */
+    _dropKeyboard() {
+        const focus = global.stage.get_key_focus();
+        if (this._card && focus && this._card.contains(focus)) global.stage.set_key_focus(null);
+    }
+
+    // ---- open / close ----
+
     /** Shows the bar next to the pointer. */
     open(px, py) {
-        if (this._actor) return;
-        this._pinned = false;
-        this._actor = this._build();
-        Main.layoutManager.addTopChrome(this._actor);
+        if (this._root) return;
+        this._root = this._build();
+        // Chrome sits above windows. Only the card (not the ring of light) takes mouse input.
+        Main.layoutManager.addTopChrome(this._root);
+        Main.layoutManager.untrackChrome(this._root);
+        Main.layoutManager.trackChrome(this._card);
 
         const idx = this._monitorFor(px, py);
         const area = Main.layoutManager.getWorkAreaForMonitor(idx);
-        // The bar's top-left corner sits just below and right of the pointer. It only moves when
-        // the screen edge leaves no room, and then by the smallest amount needed.
+        // The card's top-left corner sits just below and right of the pointer. It only moves when the
+        // screen edge leaves no room, and then by the smallest amount needed.
         const bottom = area.y + area.height - EDGE_GAP;
         const minBody = HEADER_ROW_HEIGHT + MIN_ANSWER_HEIGHT;
         let x = px + CURSOR_GAP;
         let y = py + CURSOR_GAP;
-        if (x + BAR_WIDTH > area.x + area.width - EDGE_GAP) x = px - CURSOR_GAP - BAR_WIDTH;
-        x = Math.max(area.x + EDGE_GAP, Math.min(x, area.x + area.width - BAR_WIDTH - EDGE_GAP));
+        if (x + CARD_WIDTH > area.x + area.width - EDGE_GAP) x = px - CURSOR_GAP - CARD_WIDTH;
+        x = Math.max(area.x + EDGE_GAP, Math.min(x, area.x + area.width - CARD_WIDTH - EDGE_GAP));
         if (y + minBody > bottom) y = Math.max(area.y + EDGE_GAP, bottom - minBody);
-        // The answer area gets the room that is left below the bar's input row.
         const answerMax = Math.max(MIN_ANSWER_HEIGHT, Math.min(MAX_ANSWER_HEIGHT, bottom - y - HEADER_ROW_HEIGHT));
         this._scroll.style = `max-height: ${answerMax}px;`;
-        console.log(`quickbar: bar at ${x},${y} for pointer ${px},${py} on monitor ${idx} (work area ${area.x},${area.y} ${area.width}x${area.height})`);
-        this._actor.set_position(x, y);
-        this._actor.opacity = 0;
-        this._actor.show();
-        this._actor.ease({opacity: 255, duration: 90, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+        console.log(`quickbar: bar at ${x},${y} for pointer ${px},${py} on monitor ${idx}`);
 
-        this._grab = Main.pushModal(this._actor, {actionMode: Shell.ActionMode.POPUP});
-        global.stage.set_key_focus(this._entry.clutter_text);
+        this._root.set_position(x - PAD, y - PAD);
+        this._root.opacity = 0;
+        this._root.show();
+        this._root.ease({opacity: 255, duration: 140, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
 
-        // Clicking anywhere outside the bar dismisses it (unless it is pinned).
-        this._outsideId = global.stage.connect('captured-event', (_s, ev) => {
-            if (ev.type() === Clutter.EventType.BUTTON_PRESS && !this._pinned) {
-                const src = ev.get_source();
-                if (src && !this._actor?.contains(src)) this.close();
-            }
-            return Clutter.EVENT_PROPAGATE;
+        // Typing goes to the bar at first; the moment a window is clicked it goes back to that window.
+        // The shortcut that opened the bar is still being released for a moment, and the entry is not
+        // on screen yet, so ask for the keyboard again a little later.
+        this._takeKeyboard();
+        for (const ms of [60, 220]) {
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms, () => {
+                if (this._root && !this._userClickedAway) this._takeKeyboard();
+                return GLib.SOURCE_REMOVE;
+            });
+        }
+        this._userClickedAway = false;
+        this._openedAt = GLib.get_monotonic_time();
+        this._focusId = global.display.connect('notify::focus-window', () => {
+            if (!global.display.focus_window) return;
+            // A focus change in the first moments is the app regaining focus after the shortcut, not a click.
+            if (GLib.get_monotonic_time() - this._openedAt > 400000) this._userClickedAway = true;
+            this._dropKeyboard();
+        });
+
+        this._t0 = GLib.get_monotonic_time();
+        this._glowTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, GLOW_FRAME_MS, () => {
+            this._glow?.queue_repaint();
+            return this._root ? GLib.SOURCE_CONTINUE : GLib.SOURCE_REMOVE;
         });
     }
 
     close() {
-        if (!this._actor) return;
-        if (this._outsideId) global.stage.disconnect(this._outsideId);
-        this._outsideId = 0;
-        this._releaseGrab();
-        const actor = this._actor;
-        this._actor = null;
+        if (!this._root) return;
+        if (this._focusId) global.display.disconnect(this._focusId);
+        this._focusId = 0;
+        if (this._glowTimer) GLib.source_remove(this._glowTimer);
+        this._glowTimer = 0;
+        this._dropKeyboard();
+        const root = this._root;
+        Main.layoutManager.untrackChrome(this._card);
+        this._root = null;
+        this._card = null;
+        this._glow = null;
         this._recording = false;
-        actor.remove_all_transitions();
-        actor.destroy();
+        root.remove_all_transitions();
+        root.ease({
+            opacity: 0,
+            duration: 110,
+            mode: Clutter.AnimationMode.EASE_IN_QUAD,
+            onComplete: () => root.destroy(),
+        });
         this._h.onClose();
-    }
-
-    _releaseGrab() {
-        if (this._grab) {
-            Main.popModal(this._grab);
-            this._grab = null;
-        }
-    }
-
-    _togglePin() {
-        this._pinned = !this._pinned;
-        if (this._pinned) {
-            this._pinBtn.add_style_pseudo_class('checked');
-            this._releaseGrab();
-        } else {
-            this._pinBtn.remove_style_pseudo_class('checked');
-            this._grab = Main.pushModal(this._actor, {actionMode: Shell.ActionMode.POPUP});
-            global.stage.set_key_focus(this._entry.clutter_text);
-        }
     }
 
     _onKey(ev) {
@@ -207,6 +292,47 @@ export class QuickBar {
         return Clutter.EVENT_PROPAGATE;
     }
 
+    // ---- the light ----
+
+    _paintGlow(area) {
+        const [aw, ah] = area.get_surface_size();
+        const w = aw - 2 * PAD;
+        const h = ah - 2 * PAD;
+        const cr = area.get_context();
+        if (w > 40 && h > 40) {
+            const key = `${w}x${h}`;
+            if (this._outlineKey !== key) {
+                this._outline = roundedRectPoints(w + 2 * GLOW_OUTSET, h + 2 * GLOW_OUTSET, CARD_RADIUS + GLOW_OUTSET, GLOW_SEGMENTS);
+                this._outlineKey = key;
+            }
+            const pts = this._outline;
+            const frame = glowFrame(this._mode, (GLib.get_monotonic_time() - this._t0) / 1e6);
+            cr.translate(PAD - GLOW_OUTSET, PAD - GLOW_OUTSET);
+            cr.setOperator(CAIRO_OPERATOR_SOURCE);
+            cr.setLineCap(CAIRO_LINE_CAP_ROUND);
+            for (const layer of GLOW_LAYERS) {
+                cr.setLineWidth(layer.width);
+                for (let i = 0; i < pts.length; i++) {
+                    const u = i / pts.length;
+                    const [r, g, b] = colorAt(u + frame.hueShift);
+                    cr.setSourceRGBA(r, g, b, layer.alpha * intensityAt(frame, u));
+                    const next = pts[(i + 1) % pts.length];
+                    cr.moveTo(pts[i][0], pts[i][1]);
+                    cr.lineTo(next[0], next[1]);
+                    cr.stroke();
+                }
+            }
+        }
+        cr.$dispose();
+    }
+
+    /** idle | thinking | speaking: changes how the light moves. */
+    setActivity(mode) {
+        this._mode = mode;
+    }
+
+    // ---- input ----
+
     _submit() {
         const text = this._entry.get_text().trim();
         if (!text) return;
@@ -220,6 +346,7 @@ export class QuickBar {
         this._question.show();
         this._answer.set_text('');
         this._scroll.show();
+        this.setActivity('thinking');
     }
 
     _toggleMic() {
@@ -245,15 +372,20 @@ export class QuickBar {
     }
 
     setAnswer(text) {
-        if (!this._actor) return;
+        if (!this._root) return;
         this._scroll.show();
         this._answer.set_text(displayText(text));
     }
 
     setSpeaking(on) {
         if (!this._speakerBtn) return;
-        if (on) this._speakerBtn.show();
-        else this._speakerBtn.hide();
+        if (on) {
+            this._speakerBtn.show();
+            this.setActivity('speaking');
+        } else {
+            this._speakerBtn.hide();
+            if (this._mode === 'speaking') this.setActivity('idle');
+        }
     }
 
     setMic(state) {
@@ -263,7 +395,7 @@ export class QuickBar {
 
     /** A voice transcript arrived: ask it straight away. */
     onTranscript(text) {
-        if (!this._actor) return;
+        if (!this._root) return;
         if (!text) {
             this.setStatus("I didn't catch that");
             return;
@@ -275,15 +407,16 @@ export class QuickBar {
     onFinal(text) {
         this.setStatus('');
         this.setAnswer(text);
-        if (this._actor && !this._pinned) global.stage.set_key_focus(this._entry.clutter_text);
+        if (this._mode === 'thinking') this.setActivity('idle');
     }
 
     onError(message) {
         this.setStatus('');
         this.setAnswer(`Something went wrong: ${message}`);
+        this.setActivity('idle');
     }
 
     destroy() {
-        if (this._actor) this.close();
+        if (this._root) this.close();
     }
 }

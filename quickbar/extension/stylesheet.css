@@ -1,40 +1,40 @@
-/* FRIDAY Quick Bar. Solid dark panel, one cyan accent, red only for recording. */
-.fqb-bar {
-    background-color: #12161b;
-    border: 1px solid #2a323c;
-    border-radius: 12px;
-    padding: 10px 12px 12px 12px;
-    spacing: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
-    color: #e8ecf1;
+/* FRIDAY Quick Bar: frosted glass. The light around the card is drawn in bar.js. */
+.fqb-root { color: #ffffff; }
+.fqb-card {
+    background-color: rgba(24, 28, 38, 0.52);
+    border: 1px solid rgba(255, 255, 255, 0.26);
+    border-radius: 24px;
+    padding: 14px 16px 16px 16px;
+    spacing: 10px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+    color: #ffffff;
 }
-.fqb-header { spacing: 6px; min-height: 26px; }
-.fqb-title { font-weight: bold; font-size: 11px; letter-spacing: 2px; color: #4fd8e6; }
-.fqb-status { font-size: 12px; color: #a3adb9; padding-left: 6px; }
+.fqb-header { spacing: 6px; min-height: 28px; }
+.fqb-title { font-weight: bold; font-size: 10.5px; letter-spacing: 3px; color: rgba(255, 255, 255, 0.88); }
+.fqb-status { font-size: 12px; color: rgba(255, 255, 255, 0.62); padding-left: 8px; }
 .fqb-row { spacing: 8px; }
 .fqb-entry {
-    background-color: #0b0d10;
-    border: 1px solid #3d4856;
-    border-radius: 8px;
-    padding: 8px 10px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 16px;
+    padding: 9px 14px;
     font-size: 14px;
-    color: #e8ecf1;
-    caret-color: #4fd8e6;
-    selection-background-color: #2a5f66;
+    color: #ffffff;
+    caret-color: #ffffff;
+    selection-background-color: rgba(255, 255, 255, 0.28);
 }
-.fqb-entry:focus { border-color: #4fd8e6; }
-.fqb-entry StLabel.hint-text { color: #8793a0; }
+.fqb-entry:focus { border-color: rgba(255, 255, 255, 0.55); background-color: rgba(255, 255, 255, 0.14); }
+.fqb-entry StLabel.hint-text { color: rgba(255, 255, 255, 0.5); }
 .fqb-icon-btn {
-    border-radius: 8px;
-    padding: 6px;
+    border-radius: 14px;
+    padding: 7px;
     background-color: transparent;
-    color: #a3adb9;
+    color: rgba(255, 255, 255, 0.72);
 }
-.fqb-icon-btn:hover, .fqb-icon-btn:focus { background-color: #1a2028; color: #e8ecf1; }
-.fqb-icon-btn:checked { background-color: #1a2028; color: #4fd8e6; }
-.fqb-mic { background-color: #0b0d10; border: 1px solid #3d4856; padding: 7px 9px; }
-.fqb-mic:checked { background-color: #ff5a44; border-color: #ff5a44; color: #1a0a07; }
+.fqb-icon-btn:hover, .fqb-icon-btn:focus { background-color: rgba(255, 255, 255, 0.14); color: #ffffff; }
+.fqb-mic { background-color: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); padding: 8px 10px; }
+.fqb-mic:checked { background-color: rgba(234, 67, 53, 0.9); border-color: rgba(255, 255, 255, 0.5); color: #ffffff; }
 .fqb-icon { icon-size: 16px; }
 .fqb-scroll { padding-top: 4px; }
-.fqb-question { color: #8793a0; font-size: 12px; padding-bottom: 6px; }
-.fqb-answer { font-size: 14px; line-height: 1.4em; color: #e8ecf1; }
+.fqb-question { color: rgba(255, 255, 255, 0.6); font-size: 12px; padding-bottom: 6px; }
+.fqb-answer { font-size: 14px; line-height: 1.45em; color: #ffffff; }
