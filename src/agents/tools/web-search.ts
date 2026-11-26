@@ -17,7 +17,15 @@ import {
   writeCache,
 } from "./web-shared.js";
 
-const SEARCH_PROVIDERS = ["brave", "perplexity"] as const;
+import { execFile } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+const SEARCH_PROVIDERS = ["brave", "perplexity", "duckduckgo"] as const;
 const DEFAULT_SEARCH_COUNT = 5;
 const MAX_SEARCH_COUNT = 10;
 
@@ -144,7 +152,13 @@ function resolveSearchProvider(search?: WebSearchConfig): (typeof SEARCH_PROVIDE
       ? search.provider.trim().toLowerCase()
       : "";
   if (raw === "perplexity") return "perplexity";
-  if (raw === "brave") return "brave";
+  if (raw === "duckduckgo" || raw === "ddg") return "duckduckgo";
+  if (raw === "brave") {
+    return "brave";
+  }
+  // If provider not explicitly configured, use duckduckgo if no brave key is present
+  const hasBraveKey = resolveSearchApiKey(search);
+  if (!hasBraveKey) return "duckduckgo";
   return "brave";
 }
 
@@ -306,10 +320,124 @@ async function runPerplexitySearch(params: {
   return { content, citations };
 }
 
+type DuckDuckGoResult = {
+  title?: string;
+  url?: string;
+  description?: string;
+};
+
+// FRIDAY's own SearXNG (started with the app, see friday-hud/electron/containers.cjs): many
+// engines at once, private. Null when it isn't running, so search falls back to DuckDuckGo.
+const SEARXNG_URL = process.env.FRIDAY_SEARXNG_URL ?? "http://127.0.0.1:18960";
+
+async function runSearxngSearch(params: {
+  query: string;
+  count: number;
+  timeoutSeconds: number;
+}): Promise<Array<{ title: string; url: string; description: string; siteName?: string }> | null> {
+  const url = `${SEARXNG_URL}/search?format=json&q=${encodeURIComponent(params.query)}`;
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(Math.min(params.timeoutSeconds, 15) * 1000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      results?: Array<{ title?: string; url?: string; content?: string }>;
+    };
+    const results = (data.results ?? [])
+      .filter((r) => r.url)
+      .slice(0, params.count)
+      .map((r) => ({
+        title: r.title ?? "",
+        url: r.url ?? "",
+        description: r.content ?? "",
+        siteName: resolveSiteName(r.url),
+      }));
+    return results.length ? results : null;
+  } catch {
+    return null;
+  }
+}
+
+async function runDuckDuckGoSearch(params: {
+  query: string;
+  count: number;
+  timeoutSeconds: number;
+}): Promise<Array<{ title: string; url: string; description: string; siteName?: string }>> {
+  const researchScriptPath = path.join(
+    os.homedir(),
+    ".friday/skills/human-deep-research/scripts/research_tools.py",
+  );
+
+  if (fs.existsSync(researchScriptPath)) {
+    try {
+      const { stdout } = await execFileAsync(
+        "python3",
+        [
+          researchScriptPath,
+          "search",
+          "--query",
+          params.query,
+          "--count",
+          String(params.count),
+          "--json",
+        ],
+        { timeout: Math.max(5000, params.timeoutSeconds * 1000) },
+      );
+      const parsed = JSON.parse(stdout.trim() || "[]") as Array<{
+        title?: string;
+        url?: string;
+        snippet?: string;
+      }>;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((item) => ({
+          title: item.title ?? "",
+          url: item.url ?? "",
+          description: item.snippet ?? "",
+          siteName: resolveSiteName(item.url),
+        }));
+      }
+    } catch {
+      // Fall through to inline python runner
+    }
+  }
+
+  const inlinePy = `
+import json, sys
+try:
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        from duckduckgo_search import DDGS
+    results = list(DDGS().text(sys.argv[1], max_results=int(sys.argv[2])))
+    print(json.dumps([{"title": r.get("title", ""), "url": r.get("href", ""), "description": r.get("body", "")} for r in results]))
+except Exception as e:
+    sys.stderr.write(str(e))
+    print(json.dumps([]))
+`;
+
+  try {
+    const { stdout } = await execFileAsync(
+      "python3",
+      ["-c", inlinePy, params.query, String(params.count)],
+      { timeout: Math.max(5000, params.timeoutSeconds * 1000) },
+    );
+    const parsed = JSON.parse(stdout.trim() || "[]") as DuckDuckGoResult[];
+    return parsed.map((item) => ({
+      title: item.title ?? "",
+      url: item.url ?? "",
+      description: item.description ?? "",
+      siteName: resolveSiteName(item.url),
+    }));
+  } catch (err) {
+    throw new Error(`DuckDuckGo search error: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 async function runWebSearch(params: {
   query: string;
   count: number;
-  apiKey: string;
+  apiKey?: string;
   timeoutSeconds: number;
   cacheTtlMs: number;
   provider: (typeof SEARCH_PROVIDERS)[number];
@@ -330,7 +458,31 @@ async function runWebSearch(params: {
 
   const start = Date.now();
 
+  if (params.provider === "duckduckgo") {
+    const local = await runSearxngSearch(params);
+    const results =
+      local ??
+      (await runDuckDuckGoSearch({
+        query: params.query,
+        count: params.count,
+        timeoutSeconds: params.timeoutSeconds,
+      }));
+
+    const payload = {
+      query: params.query,
+      provider: local ? "searxng" : params.provider,
+      count: results.length,
+      tookMs: Date.now() - start,
+      results,
+    };
+    writeCache(SEARCH_CACHE, cacheKey, payload, params.cacheTtlMs);
+    return payload;
+  }
+
   if (params.provider === "perplexity") {
+    if (!params.apiKey) {
+      throw new Error("Perplexity API key is required.");
+    }
     const { content, citations } = await runPerplexitySearch({
       query: params.query,
       apiKey: params.apiKey,
@@ -353,6 +505,10 @@ async function runWebSearch(params: {
 
   if (params.provider !== "brave") {
     throw new Error("Unsupported web search provider.");
+  }
+
+  if (!params.apiKey) {
+    throw new Error("Brave Search API key is required.");
   }
 
   const url = new URL(BRAVE_SEARCH_ENDPOINT);
@@ -419,7 +575,9 @@ export function createWebSearchTool(options?: {
   const description =
     provider === "perplexity"
       ? "Search the web using Perplexity Sonar (direct or via OpenRouter). Returns AI-synthesized answers with citations from real-time web search."
-      : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.";
+      : provider === "duckduckgo"
+        ? "Search the web using DuckDuckGo (privacy-preserving, real-time live search). Returns accurate titles, URLs, and snippets with zero API key requirement."
+        : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.";
 
   return {
     label: "Web Search",
@@ -430,9 +588,13 @@ export function createWebSearchTool(options?: {
       const perplexityAuth =
         provider === "perplexity" ? resolvePerplexityApiKey(perplexityConfig) : undefined;
       const apiKey =
-        provider === "perplexity" ? perplexityAuth?.apiKey : resolveSearchApiKey(search);
+        provider === "perplexity"
+          ? perplexityAuth?.apiKey
+          : provider === "duckduckgo"
+            ? "duckduckgo"
+            : resolveSearchApiKey(search);
 
-      if (!apiKey) {
+      if (!apiKey && provider !== "duckduckgo") {
         return jsonResult(missingSearchKeyPayload(provider));
       }
       const params = args as Record<string, unknown>;
@@ -443,10 +605,10 @@ export function createWebSearchTool(options?: {
       const search_lang = readStringParam(params, "search_lang");
       const ui_lang = readStringParam(params, "ui_lang");
       const rawFreshness = readStringParam(params, "freshness");
-      if (rawFreshness && provider !== "brave") {
+      if (rawFreshness && provider === "perplexity") {
         return jsonResult({
           error: "unsupported_freshness",
-          message: "freshness is only supported by the Brave web_search provider.",
+          message: "freshness is not supported by the Perplexity web_search provider.",
           docs: "https://docs.friday.ai/tools/web",
         });
       }

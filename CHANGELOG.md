@@ -6,7 +6,7 @@ Docs: https://docs.friday.ai
 Status: beta.
 
 ### Changes
-- Rebrand: rename the npm package/CLI to `friday`, add a `friday` compatibility shim, and move extensions to the `@friday/*` scope.
+- starting: rename the npm package/CLI to `friday`, add a `friday` compatibility shim, and move extensions to the `@friday/*` scope.
 - Commands: group /help and /commands output with Telegram paging. (#2504) Thanks @hougangdev.
 - macOS: limit project-local `node_modules/.bin` PATH preference to debug builds (reduce PATH hijacking risk).
 - macOS: finish FRIDAY app rename for macOS sources, bundle identifiers, and shared kit paths. (#2844) Thanks @fal3.

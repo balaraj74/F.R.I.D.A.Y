@@ -41,6 +41,15 @@ import {
   parseEmbedding,
 } from "./internal.js";
 import { bm25RankToScore, buildFtsQuery, mergeHybridResults } from "./hybrid.js";
+import {
+  addTombstone,
+  loadTombstones,
+  matchesTombstone,
+  MIN_FORGET_PHRASE_LENGTH,
+  removeLinesContaining,
+  tombstoneFileFor,
+} from "./forget.js";
+import { rerankHits } from "./rerank.js";
 import { searchKeyword, searchVector } from "./manager-search.js";
 import { ensureMemoryIndexSchema } from "./memory-schema.js";
 import { requireNodeSqlite } from "./sqlite.js";
@@ -55,6 +64,8 @@ export type MemorySearchResult = {
   score: number;
   snippet: string;
   source: MemorySource;
+  /** When the source was last updated (ms since epoch): answers "when did we talk about X". */
+  updatedAt?: number;
 };
 
 type MemoryIndexMeta = {
@@ -292,18 +303,83 @@ export class MemoryIndexManager {
       ? await this.searchVector(queryVec, candidates).catch(() => [])
       : [];
 
-    if (!hybrid.enabled) {
-      return vectorResults.filter((entry) => entry.score >= minScore).slice(0, maxResults);
+    const relevant = (
+      hybrid.enabled
+        ? this.mergeHybridResults({
+            vector: vectorResults,
+            keyword: keywordResults,
+            vectorWeight: hybrid.vectorWeight,
+            textWeight: hybrid.textWeight,
+          })
+        : vectorResults
+    ).filter((entry) => entry.score >= minScore);
+
+    // Never surface anything Sir asked to forget, then order relevant hits by recency/importance.
+    const tombstones = loadTombstones(this.tombstoneFile);
+    const allowed = relevant.filter((entry) => !matchesTombstone(entry.snippet, tombstones));
+    return rerankHits(allowed, (p) => this.fileMtime(p)).slice(0, maxResults);
+  }
+
+  private get tombstoneFile(): string {
+    return tombstoneFileFor(resolveUserPath(this.settings.store.path));
+  }
+
+  private fileMtime(relPath: string): number | undefined {
+    try {
+      const row = this.db.prepare(`SELECT mtime FROM files WHERE path = ?`).get(relPath) as
+        | { mtime?: number }
+        | undefined;
+      return typeof row?.mtime === "number" ? row.mtime : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Forget a phrase: record a tombstone, delete matching chunks from the index, and remove
+   * matching lines from curated memory files. Session transcripts remain on disk but are
+   * never indexed or recalled again for this phrase.
+   */
+  async forget(phrase: string): Promise<{
+    phrase: string;
+    chunksRemoved: number;
+    linesRemoved: Array<{ path: string; lines: number }>;
+  }> {
+    const cleaned = phrase.trim();
+    if (cleaned.length < MIN_FORGET_PHRASE_LENGTH) {
+      throw new Error(`Phrase to forget must be at least ${MIN_FORGET_PHRASE_LENGTH} characters.`);
+    }
+    await addTombstone(this.tombstoneFile, cleaned);
+
+    const like = `%${cleaned.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const ids = (
+      this.db
+        .prepare(`SELECT id FROM chunks WHERE lower(text) LIKE ? ESCAPE '\\'`)
+        .all(like) as Array<{ id: string }>
+    ).map((r) => r.id);
+    for (const id of ids) {
+      try {
+        this.db.prepare(`DELETE FROM ${VECTOR_TABLE} WHERE id = ?`).run(id);
+      } catch {}
+      if (this.fts.enabled && this.fts.available) {
+        try {
+          this.db.prepare(`DELETE FROM ${FTS_TABLE} WHERE id = ?`).run(id);
+        } catch {}
+      }
+      this.db.prepare(`DELETE FROM chunks WHERE id = ?`).run(id);
     }
 
-    const merged = this.mergeHybridResults({
-      vector: vectorResults,
-      keyword: keywordResults,
-      vectorWeight: hybrid.vectorWeight,
-      textWeight: hybrid.textWeight,
-    });
-
-    return merged.filter((entry) => entry.score >= minScore).slice(0, maxResults);
+    const linesRemoved: Array<{ path: string; lines: number }> = [];
+    for (const absPath of await listMemoryFiles(this.workspaceDir)) {
+      const original = await fs.readFile(absPath, "utf-8");
+      const { content, removed } = removeLinesContaining(original, cleaned);
+      if (removed > 0) {
+        await fs.writeFile(absPath, content, "utf-8");
+        linesRemoved.push({ path: path.relative(this.workspaceDir, absPath), lines: removed });
+      }
+    }
+    if (linesRemoved.length > 0) this.dirty = true;
+    return { phrase: cleaned, chunksRemoved: ids.length, linesRemoved };
   }
 
   private async searchVector(
@@ -2082,8 +2158,9 @@ export class MemoryIndexManager {
     options: { source: MemorySource; content?: string },
   ) {
     const content = options.content ?? (await fs.readFile(entry.absPath, "utf-8"));
+    const tombstones = loadTombstones(this.tombstoneFile);
     const chunks = chunkMarkdown(content, this.settings.chunking).filter(
-      (chunk) => chunk.text.trim().length > 0,
+      (chunk) => chunk.text.trim().length > 0 && !matchesTombstone(chunk.text, tombstones),
     );
     const embeddings = this.batch.enabled
       ? await this.embedChunksWithBatch(chunks, entry, options.source)

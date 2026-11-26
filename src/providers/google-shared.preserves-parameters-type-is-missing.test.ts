@@ -1,5 +1,5 @@
-import { convertMessages, convertTools } from "@mariozechner/pi-ai/dist/providers/google-shared.js";
-import type { Context, Model, Tool } from "@mariozechner/pi-ai/dist/types.js";
+import { convertMessages, convertTools } from "@earendil-works/pi-ai/api/google-shared";
+import type { Context, Model, Tool } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 
 const asRecord = (value: unknown): Record<string, unknown> => {
@@ -37,6 +37,7 @@ const _makeGeminiCliModel = (id: string): Model<"google-gemini-cli"> =>
     maxTokens: 1,
   }) as Model<"google-gemini-cli">;
 
+// pi-ai 1.x sends tool schemas as `parametersJsonSchema` (full JSON Schema) by default.
 describe("google-shared convertTools", () => {
   it("preserves parameters when type is missing", () => {
     const tools = [
@@ -53,7 +54,7 @@ describe("google-shared convertTools", () => {
     ] as unknown as Tool[];
 
     const converted = convertTools(tools);
-    const params = asRecord(converted?.[0]?.functionDeclarations?.[0]?.parameters);
+    const params = asRecord(converted?.[0]?.functionDeclarations?.[0]?.parametersJsonSchema);
 
     expect(params.type).toBeUndefined();
     expect(params.properties).toBeDefined();
@@ -93,7 +94,7 @@ describe("google-shared convertTools", () => {
     ] as unknown as Tool[];
 
     const converted = convertTools(tools);
-    const params = asRecord(converted?.[0]?.functionDeclarations?.[0]?.parameters);
+    const params = asRecord(converted?.[0]?.functionDeclarations?.[0]?.parametersJsonSchema);
     const properties = asRecord(params.properties);
     const mode = asRecord(properties.mode);
     const options = asRecord(properties.options);
@@ -102,9 +103,10 @@ describe("google-shared convertTools", () => {
 
     expect(params.patternProperties).toEqual({ "^x-": { type: "string" } });
     expect(params.additionalProperties).toBe(false);
-    expect(mode.const).toBe("fast");
+    // pi-ai 1.x rewrites `const` as a one-value `enum` for Gemini; the constraint is unchanged.
+    expect(mode.enum).toEqual(["fast"]);
     expect(options.anyOf).toEqual([{ type: "string" }, { type: "number" }]);
-    expect(items.const).toBe("item");
+    expect(items.enum).toEqual(["item"]);
     expect(params.required).toEqual(["mode"]);
   });
 
@@ -134,7 +136,7 @@ describe("google-shared convertTools", () => {
     ] as unknown as Tool[];
 
     const converted = convertTools(tools);
-    const params = asRecord(converted?.[0]?.functionDeclarations?.[0]?.parameters);
+    const params = asRecord(converted?.[0]?.functionDeclarations?.[0]?.parametersJsonSchema);
     const config = asRecord(asRecord(params.properties).config);
     const configProps = asRecord(config.properties);
     const retries = asRecord(configProps.retries);

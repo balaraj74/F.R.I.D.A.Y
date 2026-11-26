@@ -16,6 +16,12 @@ import { nodeHandlers } from "./server-methods/nodes.js";
 import { sendHandlers } from "./server-methods/send.js";
 import { sessionsHandlers } from "./server-methods/sessions.js";
 import { skillsHandlers } from "./server-methods/skills.js";
+import { mcpHandlers } from "./server-methods/mcp.js";
+import { brainHandlers } from "./server-methods/brain.js";
+import { briefHandlers } from "./server-methods/brief.js";
+import { evolutionHandlers } from "./server-methods/evolution.js";
+import { abilitiesHandlers } from "./server-methods/abilities.js";
+import { jobsHandlers } from "./server-methods/jobs.js";
 import { systemHandlers } from "./server-methods/system.js";
 import { talkHandlers } from "./server-methods/talk.js";
 import { ttsHandlers } from "./server-methods/tts.js";
@@ -61,6 +67,11 @@ const READ_METHODS = new Set([
   "agents.list",
   "agent.identity.get",
   "skills.status",
+  "mcp.status",
+  "brief.catchup",
+  "evolution.status",
+  "jobs.list",
+  "abilities.status",
   "voicewake.get",
   "sessions.list",
   "sessions.preview",
@@ -86,7 +97,11 @@ const WRITE_METHODS = new Set([
   "voicewake.set",
   "node.invoke",
   "chat.send",
+  "abilities.files.add",
+  "abilities.files.remove",
   "chat.abort",
+  "brain.ack",
+  "brain.spoken",
   "browser.request",
 ]);
 
@@ -162,6 +177,12 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...talkHandlers,
   ...ttsHandlers,
   ...skillsHandlers,
+  ...mcpHandlers,
+  ...brainHandlers,
+  ...briefHandlers,
+  ...evolutionHandlers,
+  ...jobsHandlers,
+  ...abilitiesHandlers,
   ...sessionsHandlers,
   ...systemHandlers,
   ...updateHandlers,

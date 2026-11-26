@@ -49,7 +49,30 @@ npm install -g friday@latest
 friday onboard --install-daemon
 ```
 
-### Running from Source
+## ⚡ 1-Command Setup & Launch (For Any Laptop / Friend's Machine)
+
+Everything—the **Antigravity Claude Proxy**, the **F.R.I.D.A.Y. Gateway**, and the **Sci-Fi Holographic Desktop HUD**—is consolidated in this single repository:
+
+```bash
+# 1. Clone repository
+git clone https://github.com/balaraj74/F.R.I.D.A.Y.git
+cd F.R.I.D.A.Y
+
+# 2. One-command automated installation & build
+./setup.sh
+
+# 3. One-command boot (launches Proxy + Gateway + HUD)
+./start.sh
+```
+
+To stop all services anytime:
+```bash
+./stop.sh
+```
+
+---
+
+## 🚀 Manual Running from Source
 
 ```bash
 # Clone the repository
@@ -188,6 +211,8 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 - Inspired by F.R.I.D.A.Y from the Marvel Cinematic Universe
 - Built with modern AI technologies
+- Powered by open-source community contributions
+
 ---
 
 <p align="center">

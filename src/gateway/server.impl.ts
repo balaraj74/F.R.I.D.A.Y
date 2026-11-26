@@ -1,6 +1,20 @@
+import path from "node:path";
+
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { startMemoryConsolidationSchedule } from "../agents/memory/consolidation/scheduler.js";
+import { mcpManager } from "../agents/mcp/manager.js";
+import { startCommitmentScanSchedule } from "../agents/commitments/extract.js";
+import { extractKnowledge } from "../agents/knowledge/extract.js";
+import { markSessionStart, markSessionStop } from "../infra/catchup-brief.js";
+import { lastActivityMs, startEvolutionSchedule } from "../agents/evolution/engine.js";
+import { startFileIndexSchedule } from "../agents/files/index.js";
+import { startJobRunner } from "./jobs-runner.js";
+import { readAutonomyState } from "../infra/autonomy-state.js";
+import { resolveStateDir } from "../config/paths.js";
+import { resolveSessionTranscriptsDirForAgent } from "../config/sessions/paths.js";
 import { initSubagentRegistry } from "../agents/subagent-registry.js";
 import { registerSkillsChangeListener } from "../agents/skills/refresh.js";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import type { CanvasHostServer } from "../canvas-host/server.js";
 import { type ChannelId, listChannelPlugins } from "../channels/plugins/index.js";
 import { createDefaultDeps } from "../cli/deps.js";
@@ -148,6 +162,11 @@ export async function startGatewayServer(
   port = 18789,
   opts: GatewayServerOptions = {},
 ): Promise<GatewayServer> {
+  try {
+    initTheme("dark", false);
+  } catch {
+    // theme init fallback
+  }
   // Ensure all default port derivations (browser/canvas) see the actual runtime port.
   process.env.FRIDAY_GATEWAY_PORT = String(port);
   logAcceptedEnvOption({
@@ -408,6 +427,46 @@ export async function startGatewayServer(
 
   let heartbeatRunner = startHeartbeatRunner({ cfg: cfgAtStart });
 
+  // Nightly memory consolidation (03:30 local) in review mode: writes proposals under
+  // <stateDir>/memory/proposals, never edits MEMORY.md/USER.md without Sir applying them.
+  const stopMemoryConsolidation = startMemoryConsolidationSchedule({
+    workspaceDir: defaultWorkspaceDir,
+    sessionsDir: resolveSessionTranscriptsDirForAgent(defaultAgentId),
+    proposalsDir: path.join(resolveStateDir(), "memory", "proposals"),
+  });
+
+  // Remember when FRIDAY was last shut down, for the catch-up brief.
+  markSessionStart();
+
+  // Commitments: read new conversation lines every 20 minutes and track promises/deadlines.
+  const stopCommitmentScan = startCommitmentScanSchedule({
+    cfg: () => loadConfig(),
+    sessionsDir: resolveSessionTranscriptsDirForAgent(defaultAgentId),
+    // Same new lines also feed the knowledge graph (people, projects and how they connect).
+    alsoExtract: (cfg, lines) => extractKnowledge({ cfg, lines }),
+  });
+
+  // Evolution: once a day, when Sir is idle, review what went wrong and propose tested changes.
+  const evolutionSessionsDir = resolveSessionTranscriptsDirForAgent(defaultAgentId);
+  const startedAtMs = Date.now();
+  const stopEvolution = startEvolutionSchedule({
+    cfg: () => loadConfig(),
+    sessionsDir: evolutionSessionsDir,
+    workspaceDir: defaultWorkspaceDir,
+    idleMs: () => Date.now() - Math.max(startedAtMs, lastActivityMs(evolutionSessionsDir)),
+    isPaused: () => readAutonomyState().paused,
+    notify: (payload) => broadcast("evolution", payload, { dropIfSlow: false }),
+  });
+
+  // Long jobs: work through planned steps in the background and resume after a restart.
+  const stopJobs = startJobRunner((job) => broadcast("job", job, { dropIfSlow: false }));
+
+  // Sir's chosen folders: keep the local file index fresh in the background.
+  const stopFileIndex = startFileIndexSchedule();
+
+  // Connect configured MCP servers in the background; agent runs wait briefly for them.
+  mcpManager.sync(cfgAtStart);
+
   void cron.start().catch((err) => logCron.error(`failed to start: ${String(err)}`));
 
   const execApprovalManager = new ExecApprovalManager();
@@ -579,6 +638,13 @@ export async function startGatewayServer(
         skillsRefreshTimer = null;
       }
       skillsChangeUnsub();
+      stopMemoryConsolidation();
+      stopCommitmentScan();
+      stopEvolution();
+      stopFileIndex();
+      stopJobs();
+      markSessionStop();
+      await mcpManager.closeAll();
       await close(opts);
     },
   };

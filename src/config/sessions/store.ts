@@ -33,6 +33,30 @@ function isSessionStoreRecord(value: unknown): value is Record<string, SessionEn
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+/** Native JSON is ~100x faster on a big store; JSON5 only for hand-edited files. */
+function parseSessionStore(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return JSON5.parse(raw);
+  }
+}
+
+// Each entry can carry an ~800 KB skills snapshot. It's rebuilt on demand, so idle sessions
+// don't keep theirs: otherwise every message pays to read and rewrite all of them.
+const SKILLS_SNAPSHOT_KEEP_MS = 24 * 60 * 60_000;
+
+export function pruneIdleSkillSnapshots(
+  store: Record<string, SessionEntry>,
+  now = Date.now(),
+): void {
+  for (const entry of Object.values(store)) {
+    if (entry?.skillsSnapshot && now - (entry.updatedAt ?? 0) > SKILLS_SNAPSHOT_KEEP_MS) {
+      delete entry.skillsSnapshot;
+    }
+  }
+}
+
 function getSessionStoreTtl(): number {
   return resolveCacheTtlMs({
     envValue: process.env.FRIDAY_SESSION_CACHE_TTL_MS,
@@ -118,7 +142,7 @@ export function loadSessionStore(
   let mtimeMs = getFileMtimeMs(storePath);
   try {
     const raw = fs.readFileSync(storePath, "utf-8");
-    const parsed = JSON5.parse(raw);
+    const parsed = parseSessionStore(raw);
     if (isSessionStoreRecord(parsed)) {
       store = parsed as Record<string, SessionEntry>;
     }
@@ -182,6 +206,7 @@ async function saveSessionStoreUnlocked(
   invalidateSessionStoreCache(storePath);
 
   normalizeSessionStore(store);
+  pruneIdleSkillSnapshots(store);
 
   await fs.promises.mkdir(path.dirname(storePath), { recursive: true });
   const json = JSON.stringify(store, null, 2);

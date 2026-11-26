@@ -71,42 +71,48 @@ async function createLocalEmbeddingProvider(
   // Lazy-load node-llama-cpp to keep startup light unless local is enabled.
   const { getLlama, resolveModelFile, LlamaLogLevel } = await importNodeLlamaCpp();
 
-  let llama: Llama | null = null;
-  let embeddingModel: LlamaModel | null = null;
-  let embeddingContext: LlamaEmbeddingContext | null = null;
-
-  const ensureContext = async () => {
-    if (!llama) {
-      llama = await getLlama({ logLevel: LlamaLogLevel.error });
-    }
-    if (!embeddingModel) {
+  // Initialise once: embedBatch calls this concurrently, and parallel first calls used to
+  // download/load the model several times (racing on the download's final rename).
+  let ready: Promise<{ model: LlamaModel; ctx: LlamaEmbeddingContext; maxTokens: number }> | null =
+    null;
+  const ensureContext = () => {
+    ready ??= (async () => {
+      const llama: Llama = await getLlama({ logLevel: LlamaLogLevel.error });
       const resolved = await resolveModelFile(modelPath, modelCacheDir || undefined);
-      embeddingModel = await llama.loadModel({ modelPath: resolved });
-    }
-    if (!embeddingContext) {
-      embeddingContext = await embeddingModel.createEmbeddingContext();
-    }
-    return embeddingContext;
+      const model = await llama.loadModel({ modelPath: resolved });
+      const ctx = await model.createEmbeddingContext();
+      // Leave room for the special tokens the model adds around the input.
+      const maxTokens = Math.max(1, model.trainContextSize - 4);
+      return { model, ctx, maxTokens };
+    })().catch((err) => {
+      ready = null; // allow a retry after a transient failure
+      throw err;
+    });
+    return ready;
   };
+
+  // Small models (e.g. MiniLM, 512 tokens) can't take every chunk: code, URLs and non-Latin
+  // text tokenize much denser than the chunker's estimate. Truncate instead of failing the index.
+  const embedOne = async (text: string) => {
+    const { model, ctx, maxTokens } = await ensureContext();
+    const tokens = model.tokenize(text);
+    const embedding = await ctx.getEmbeddingFor(
+      tokens.length > maxTokens ? tokens.slice(0, maxTokens) : tokens,
+    );
+    return Array.from(embedding.vector) as number[];
+  };
+
+  // EmbeddingGemma is trained with task prompts; without them retrieval quality drops sharply.
+  // https://ai.google.dev/gemma/docs/embeddinggemma (query vs. document prompts)
+  const usesGemmaPrompts = /embeddinggemma/i.test(modelPath);
+  const asQuery = (t: string) => (usesGemmaPrompts ? `task: search result | query: ${t}` : t);
+  const asDocument = (t: string) => (usesGemmaPrompts ? `title: none | text: ${t}` : t);
 
   return {
     id: "local",
     model: modelPath,
-    embedQuery: async (text) => {
-      const ctx = await ensureContext();
-      const embedding = await ctx.getEmbeddingFor(text);
-      return Array.from(embedding.vector) as number[];
-    },
-    embedBatch: async (texts) => {
-      const ctx = await ensureContext();
-      const embeddings = await Promise.all(
-        texts.map(async (text) => {
-          const embedding = await ctx.getEmbeddingFor(text);
-          return Array.from(embedding.vector) as number[];
-        }),
-      );
-      return embeddings;
-    },
+    embedQuery: (text) => embedOne(asQuery(text)),
+    embedBatch: async (texts) => Promise.all(texts.map((t) => embedOne(asDocument(t)))),
   };
 }
 

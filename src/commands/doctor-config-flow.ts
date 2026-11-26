@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { ZodIssue } from "zod";
 
 import type { FRIDAYConfig } from "../config/config.js";
@@ -120,25 +118,6 @@ function noteOpencodeProviderOverrides(cfg: FRIDAYConfig) {
   note(lines.join("\n"), "OpenCode Zen");
 }
 
-function hasExplicitConfigPath(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(env.FRIDAY_CONFIG_PATH?.trim() || env.FRIDAY_CONFIG_PATH?.trim());
-}
-
-function moveLegacyConfigFile(legacyPath: string, canonicalPath: string) {
-  fs.mkdirSync(path.dirname(canonicalPath), { recursive: true, mode: 0o700 });
-  try {
-    fs.renameSync(legacyPath, canonicalPath);
-  } catch {
-    fs.copyFileSync(legacyPath, canonicalPath);
-    fs.chmodSync(canonicalPath, 0o600);
-    try {
-      fs.unlinkSync(legacyPath);
-    } catch {
-      // Best-effort cleanup; we'll warn later if both files exist.
-    }
-  }
-}
-
 export async function loadAndMaybeMigrateDoctorConfig(params: {
   options: DoctorOptions;
   confirm: (p: { message: string; initialValue: boolean }) => Promise<boolean>;
@@ -152,18 +131,7 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
     note(stateDirResult.warnings.map((entry) => `- ${entry}`).join("\n"), "Doctor warnings");
   }
 
-  let snapshot = await readConfigFileSnapshot();
-  if (!hasExplicitConfigPath(process.env) && snapshot.exists) {
-    const basename = path.basename(snapshot.path);
-    if (basename === "friday.json") {
-      const canonicalPath = path.join(path.dirname(snapshot.path), "friday.json");
-      if (!fs.existsSync(canonicalPath)) {
-        moveLegacyConfigFile(snapshot.path, canonicalPath);
-        note(`- Config: ${snapshot.path} → ${canonicalPath}`, "Doctor changes");
-        snapshot = await readConfigFileSnapshot();
-      }
-    }
-  }
+  const snapshot = await readConfigFileSnapshot();
   const baseCfg = snapshot.config ?? {};
   let cfg: FRIDAYConfig = baseCfg;
   let candidate = structuredClone(baseCfg) as FRIDAYConfig;

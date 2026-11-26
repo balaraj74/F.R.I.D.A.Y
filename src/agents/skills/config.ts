@@ -57,8 +57,14 @@ function normalizeAllowlist(input: unknown): string[] | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+/** pi 1.x moved a skill's origin from `skill.source` to `skill.sourceInfo.source`. */
+export function resolveSkillSource(skill: SkillEntry["skill"]): string | undefined {
+  const legacy = (skill as { source?: unknown }).source;
+  return skill.sourceInfo?.source ?? (typeof legacy === "string" ? legacy : undefined);
+}
+
 function isBundledSkill(entry: SkillEntry): boolean {
-  return entry.skill.source === "friday-bundled";
+  return resolveSkillSource(entry.skill) === "friday-bundled";
 }
 
 export function resolveBundledAllowlist(config?: FRIDAYConfig): string[] | undefined {

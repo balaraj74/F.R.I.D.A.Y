@@ -1,0 +1,15 @@
+{
+  "name": "@friday/openmuse-engine",
+  "version": "2026.1.27-beta.1",
+  "type": "module",
+  "description": "Headless OpenMuse substrate engine for FRIDAY (persistent browser, durable SQL task engine, and sandbox execution)",
+  "dependencies": {
+    "@sinclair/typebox": "0.34.47",
+    "playwright-core": "^1.58.0"
+  },
+  "friday": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

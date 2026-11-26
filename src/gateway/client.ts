@@ -313,7 +313,17 @@ export class GatewayClient {
         }
         this.pending.delete(parsed.id);
         if (parsed.ok) pending.resolve(parsed.payload);
-        else pending.reject(new Error(parsed.error?.message ?? "unknown error"));
+        else {
+          // Keep the structured error (code, details) on the Error so callers such as the
+          // `friday jobs` CLI can show Jobs_API fields. The message is unchanged.
+          const failure = new Error(parsed.error?.message ?? "unknown error");
+          pending.reject(
+            Object.assign(failure, {
+              gatewayCode: parsed.error?.code,
+              details: parsed.error?.details,
+            }),
+          );
+        }
       }
     } catch (err) {
       logDebug(`gateway client parse error: ${String(err)}`);

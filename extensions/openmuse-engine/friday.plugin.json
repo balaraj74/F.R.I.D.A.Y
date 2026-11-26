@@ -1,0 +1,29 @@
+{
+  "id": "openmuse-engine",
+  "name": "OpenMuse Substrate Engine",
+  "description": "Headless substrate engine providing persistent Playwright browser sessions, durable SQL-leased task execution, and execution sandbox.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether the OpenMuse headless substrate engine is enabled."
+      },
+      "browserProfileDir": {
+        "type": "string",
+        "description": "Directory for persistent browser profiles and cookies (defaults to ~/.friday/openmuse/browser_profiles)."
+      },
+      "taskDbPath": {
+        "type": "string",
+        "description": "Path to SQLite task database (defaults to ~/.friday/openmuse/tasks.db)."
+      },
+      "workerConcurrency": {
+        "type": "number",
+        "default": 2,
+        "description": "Maximum concurrent durable tasks."
+      }
+    }
+  }
+}

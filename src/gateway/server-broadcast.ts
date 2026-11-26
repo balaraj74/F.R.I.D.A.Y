@@ -5,6 +5,8 @@ import { logWs, summarizeAgentEventForWsLog } from "./ws-log.js";
 const ADMIN_SCOPE = "operator.admin";
 const APPROVALS_SCOPE = "operator.approvals";
 const PAIRING_SCOPE = "operator.pairing";
+const READ_SCOPE = "operator.read";
+const WRITE_SCOPE = "operator.write";
 
 const EVENT_SCOPE_GUARDS: Record<string, string[]> = {
   "exec.approval.requested": [APPROVALS_SCOPE],
@@ -13,6 +15,11 @@ const EVENT_SCOPE_GUARDS: Record<string, string[]> = {
   "device.pair.resolved": [PAIRING_SCOPE],
   "node.pair.requested": [PAIRING_SCOPE],
   "node.pair.resolved": [PAIRING_SCOPE],
+  // Job approval requests and reminders name the action awaiting Sir's decision (Req 8.4).
+  // Keep these literals in sync with HUD_APPROVAL_EVENT / HUD_NOTICE_EVENT in src/jobs/ops/notifier.ts.
+  "jobs.approval": [APPROVALS_SCOPE],
+  // Digests and notices describe Job activity; write implies read, as for the read methods.
+  "jobs.notice": [READ_SCOPE, WRITE_SCOPE],
 };
 
 function hasEventScope(client: GatewayWsClient, event: string): boolean {

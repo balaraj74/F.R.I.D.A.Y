@@ -56,13 +56,10 @@ describe("Nix integration (U3, U5, U9)", () => {
     });
 
     it("STATE_DIR prefers FRIDAY_STATE_DIR over legacy override", async () => {
-      await withEnvOverride(
-        { FRIDAY_STATE_DIR: "/custom/new", FRIDAY_STATE_DIR: "/custom/legacy" },
-        async () => {
-          const { STATE_DIR } = await import("./config.js");
-          expect(STATE_DIR).toBe(path.resolve("/custom/new"));
-        },
-      );
+      await withEnvOverride({ FRIDAY_STATE_DIR: "/custom/new" }, async () => {
+        const { STATE_DIR } = await import("./config.js");
+        expect(STATE_DIR).toBe(path.resolve("/custom/new"));
+      });
     });
 
     it("CONFIG_PATH defaults to ~/.friday/friday.json when env not set", async () => {
@@ -94,7 +91,6 @@ describe("Nix integration (U3, U5, U9)", () => {
       await withEnvOverride(
         {
           FRIDAY_CONFIG_PATH: "/nix/store/new/friday.json",
-          FRIDAY_CONFIG_PATH: "/nix/store/legacy/friday.json",
         },
         async () => {
           const { CONFIG_PATH } = await import("./config.js");

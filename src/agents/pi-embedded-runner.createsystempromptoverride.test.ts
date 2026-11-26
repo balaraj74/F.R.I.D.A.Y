@@ -4,8 +4,9 @@ import type { FRIDAYConfig } from "../config/config.js";
 import { ensureFRIDAYModelsJson } from "./models-config.js";
 import { createSystemPromptOverride } from "./pi-embedded-runner.js";
 
-vi.mock("@mariozechner/pi-ai", async () => {
-  const actual = await vi.importActual<typeof import("@mariozechner/pi-ai")>("@mariozechner/pi-ai");
+vi.mock("@earendil-works/pi-ai", async () => {
+  const actual =
+    await vi.importActual<typeof import("@earendil-works/pi-ai")>("@earendil-works/pi-ai");
   return {
     ...actual,
     streamSimple: (model: { api: string; provider: string; id: string }) => {

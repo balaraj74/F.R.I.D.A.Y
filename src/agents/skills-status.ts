@@ -2,6 +2,7 @@ import path from "node:path";
 
 import type { FRIDAYConfig } from "../config/config.js";
 import { CONFIG_DIR } from "../utils.js";
+import { resolveSkillSource } from "./skills/config.js";
 import {
   hasBinary,
   isBundledSkillAllowed,
@@ -230,7 +231,7 @@ function buildSkillStatus(
   return {
     name: entry.skill.name,
     description: entry.skill.description,
-    source: entry.skill.source,
+    source: resolveSkillSource(entry.skill) ?? "unknown",
     filePath: entry.skill.filePath,
     baseDir: entry.skill.baseDir,
     skillKey,

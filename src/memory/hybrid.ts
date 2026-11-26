@@ -41,6 +41,7 @@ export function mergeHybridResults(params: {
   keyword: HybridKeywordResult[];
   vectorWeight: number;
   textWeight: number;
+  getArousal?: (r: { id: string; snippet: string; path: string }) => number;
 }): Array<{
   path: string;
   startLine: number;
@@ -96,7 +97,11 @@ export function mergeHybridResults(params: {
   }
 
   const merged = Array.from(byId.values()).map((entry) => {
-    const score = params.vectorWeight * entry.vectorScore + params.textWeight * entry.textScore;
+    let score = params.vectorWeight * entry.vectorScore + params.textWeight * entry.textScore;
+    if (params.getArousal) {
+      const arousal = params.getArousal({ id: entry.id, snippet: entry.snippet, path: entry.path });
+      score = score * (1 + 0.25 * Math.max(0, Math.min(1, arousal)));
+    }
     return {
       path: entry.path,
       startLine: entry.startLine,

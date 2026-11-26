@@ -5,7 +5,8 @@ import {
   formatSkillsForPrompt,
   loadSkillsFromDir,
   type Skill,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
+import { retrieveSkills } from "./retrieval/retriever.js";
 
 import type { FRIDAYConfig } from "../../config/config.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
@@ -255,6 +256,61 @@ export function resolveSkillsPromptForRun(params: {
     return prompt.trim() ? prompt : "";
   }
   return "";
+}
+
+export function resolveRetrievedSkillsForRun(params: {
+  skillsSnapshot?: SkillSnapshot;
+  entries?: SkillEntry[];
+  config?: FRIDAYConfig;
+  workspaceDir: string;
+  query?: string;
+  context?: string;
+  topK?: number;
+}): { prompt: string; retrievedSkills: string[]; scores: Record<string, number> } {
+  const candidateSkills: Skill[] =
+    params.skillsSnapshot?.resolvedSkills ?? (params.entries ?? []).map((entry) => entry.skill);
+
+  const query = params.query?.trim();
+
+  // If query is provided and we have candidates, run dynamic retrieval
+  if (candidateSkills.length > 0 && query) {
+    const retrieval = retrieveSkills({
+      query,
+      context: params.context,
+      candidates: candidateSkills,
+      topK: params.topK ?? 8,
+    });
+    const prompt = formatSkillsForPrompt(retrieval.skills);
+    return {
+      prompt: prompt.trim() ? prompt : "",
+      retrievedSkills: retrieval.skills.map((s) => s.name),
+      scores: retrieval.scores,
+    };
+  }
+
+  // Fallback if no query is provided
+  const snapshotPrompt = params.skillsSnapshot?.prompt?.trim();
+  if (snapshotPrompt) {
+    return {
+      prompt: snapshotPrompt,
+      retrievedSkills: (params.skillsSnapshot?.resolvedSkills ?? []).map((s) => s.name),
+      scores: {},
+    };
+  }
+
+  if (params.entries && params.entries.length > 0) {
+    const prompt = buildWorkspaceSkillsPrompt(params.workspaceDir, {
+      entries: params.entries,
+      config: params.config,
+    });
+    return {
+      prompt: prompt.trim() ? prompt : "",
+      retrievedSkills: params.entries.map((e) => e.skill.name),
+      scores: {},
+    };
+  }
+
+  return { prompt: "", retrievedSkills: [], scores: {} };
 }
 
 export function loadWorkspaceSkillEntries(

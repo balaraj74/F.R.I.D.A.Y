@@ -9,7 +9,7 @@ vi.mock("./compact.js", () => ({
 }));
 
 vi.mock("./model.js", () => ({
-  resolveModel: vi.fn(() => ({
+  resolveModel: vi.fn(async () => ({
     model: {
       id: "test-model",
       provider: "anthropic",
@@ -17,8 +17,8 @@ vi.mock("./model.js", () => ({
       api: "messages",
     },
     error: null,
-    authStorage: {
-      setRuntimeApiKey: vi.fn(),
+    modelRuntime: {
+      setRuntimeApiKey: vi.fn(async () => {}),
     },
     modelRegistry: {},
   })),

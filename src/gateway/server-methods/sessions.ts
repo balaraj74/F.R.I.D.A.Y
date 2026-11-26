@@ -40,6 +40,20 @@ import { applySessionsPatchToStore } from "../sessions-patch.js";
 import { resolveSessionKeyFromResolveParams } from "../sessions-resolve.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
+/** True when the session's transcript file exists and has content. */
+function hasTranscript(entry: SessionEntry, storePath: string): boolean {
+  if (!entry.sessionId) return false;
+  return resolveSessionTranscriptCandidates(entry.sessionId, storePath, entry.sessionFile).some(
+    (candidate) => {
+      try {
+        return fs.statSync(candidate).size > 0;
+      } catch {
+        return false;
+      }
+    },
+  );
+}
+
 export const sessionsHandlers: GatewayRequestHandlers = {
   "sessions.list": ({ params, respond }) => {
     if (!validateSessionsListParams(params)) {
@@ -234,6 +248,14 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       }
       const entry = store[primaryKey];
       const now = Date.now();
+      // Keep the chat being replaced: park it under its own key so it stays in the history list
+      // and can be reopened. Only chats that actually have a transcript are kept.
+      if (entry?.sessionId && hasTranscript(entry, storePath)) {
+        const stamp = new Date(now).toISOString().replace(/[-:T]/g, "").slice(0, 14);
+        let archiveKey = `${primaryKey}-${stamp}`;
+        while (store[archiveKey]) archiveKey += "x";
+        store[archiveKey] = { ...entry, updatedAt: entry.updatedAt ?? now };
+      }
       const nextEntry: SessionEntry = {
         sessionId: randomUUID(),
         updatedAt: now,

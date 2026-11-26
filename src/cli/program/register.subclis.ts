@@ -133,6 +133,70 @@ const entries: SubCliEntry[] = [
     },
   },
   {
+    name: "trace",
+    description: "Replay a session's tool timeline",
+    register: async (program) => {
+      const mod = await import("../trace-cli.js");
+      mod.registerTraceCli(program);
+    },
+  },
+  {
+    name: "autonomy",
+    description: "Autonomous loop: status, kill switch, situation report",
+    register: async (program) => {
+      const mod = await import("../autonomy-cli.js");
+      mod.registerAutonomyCli(program);
+    },
+  },
+  {
+    name: "commitments",
+    description: "Promises and deadlines FRIDAY tracks",
+    register: async (program) => {
+      const mod = await import("../commitments-cli.js");
+      mod.registerCommitmentsCli(program);
+    },
+  },
+  {
+    name: "trust",
+    description: "Earned trust: track record, grants, undo, morning brief",
+    register: async (program) => {
+      const mod = await import("../trust-cli.js");
+      mod.registerTrustCli(program);
+    },
+  },
+  {
+    name: "knowledge",
+    description: "Knowledge graph: people, projects and how they connect",
+    register: async (program) => {
+      const mod = await import("../knowledge-cli.js");
+      mod.registerKnowledgeCli(program);
+    },
+  },
+  {
+    name: "design",
+    description: "Design track: reference images, DESIGN.md and tokens",
+    register: async (program) => {
+      const mod = await import("../design.js");
+      mod.registerDesignCli(program);
+    },
+  },
+  {
+    name: "jobs",
+    description: "Jobs: create, list, inspect, control and replay long-running work",
+    register: async (program) => {
+      const mod = await import("../jobs.js");
+      mod.registerJobsCli(program);
+    },
+  },
+  {
+    name: "mcp",
+    description: "MCP servers: add, list, test, reconnect",
+    register: async (program) => {
+      const mod = await import("../mcp-cli.js");
+      mod.registerMcpCli(program);
+    },
+  },
+  {
     name: "dns",
     description: "DNS helpers",
     register: async (program) => {

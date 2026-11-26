@@ -40,6 +40,9 @@ function buildMemorySection(params: { isMinimal: boolean; availableTools: Set<st
   return [
     "## Memory Recall",
     "Before answering anything about prior work, decisions, dates, people, preferences, or todos: run memory_search on MEMORY.md + memory/*.md; then use memory_get to pull only the needed lines. If low confidence after search, say you checked.",
+    '- "What do you know about X?": search for X (and its obvious synonyms), then summarise only what the results say, grouped by source; say plainly when nothing was found instead of guessing.',
+    '- "When did we talk about X?": search and answer with each result\'s `when` date (most recent first).',
+    '- "Forget X": only when the user explicitly asks. Call memory_forget with the exact phrase, then report what was removed. Never forget things on your own initiative.',
     "",
   ];
 }
@@ -189,7 +192,7 @@ export function buildAgentSystemPrompt(params: {
     ls: "List directory contents",
     exec: "Run shell commands (pty available for TTY-required CLIs)",
     process: "Manage background exec sessions",
-    web_search: "Search the web (Brave API)",
+    web_search: "Search the web (DuckDuckGo / live web search)",
     web_fetch: "Fetch and extract readable content from a URL",
     // Channel docking: add login tools here when a channel needs interactive linking.
     browser: "Control web browser",
@@ -356,6 +359,7 @@ export function buildAgentSystemPrompt(params: {
     "",
     "## Tool Call Style",
     "Default: do not narrate routine, low-risk tool calls (just call the tool).",
+    "Each reply has a hard output limit (thinking + tool calls together). Never put a large file in one write call: keep each write/edit under about 300 lines, writing a skeleton first and adding sections with further edit calls.",
     "Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions (e.g., deletions), or when the user explicitly asks.",
     "Keep narration brief and value-dense; avoid repeating obvious steps.",
     "Use plain human language for narration unless in a technical context.",

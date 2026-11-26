@@ -12,6 +12,7 @@ import { formatUncaughtError } from "../infra/errors.js";
 import { installUnhandledRejectionHandler } from "../infra/unhandled-rejections.js";
 import { enableConsoleCapture } from "../logging.js";
 import { getPrimaryCommand, hasHelpOrVersion } from "./argv.js";
+import { isBenignProcessError, noteBenignProcessError } from "../infra/benign-errors.js";
 import { tryRouteCli } from "./route.js";
 
 export function rewriteUpdateFlagArgv(argv: string[]): string[] {
@@ -45,6 +46,10 @@ export async function runCli(argv: string[] = process.argv) {
   installUnhandledRejectionHandler();
 
   process.on("uncaughtException", (error) => {
+    if (isBenignProcessError(error)) {
+      noteBenignProcessError(error);
+      return;
+    }
     console.error("[friday] Uncaught exception:", formatUncaughtError(error));
     process.exit(1);
   });

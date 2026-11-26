@@ -1,6 +1,7 @@
 packages:
   - .
   - ui
+  - friday-hud
   - packages/*
   - extensions/*
 

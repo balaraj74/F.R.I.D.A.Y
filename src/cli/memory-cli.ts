@@ -5,7 +5,11 @@ import path from "node:path";
 
 import type { Command } from "commander";
 
-import { resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
+import {
+  applyConsolidationProposal,
+  runMemoryConsolidationJob,
+} from "../agents/memory/consolidation/index.js";
 import { loadConfig } from "../config/config.js";
 import { resolveSessionTranscriptsDirForAgent } from "../config/sessions/paths.js";
 import { setVerbose } from "../globals.js";
@@ -609,7 +613,11 @@ export function registerMemoryCli(program: Command) {
                   rich,
                   theme.accent,
                   `${shortenHomePath(result.path)}:${result.startLine}-${result.endLine}`,
-                )}`,
+                )}${
+                  result.updatedAt
+                    ? ` ${colorize(rich, theme.muted, new Date(result.updatedAt).toISOString().slice(0, 10))}`
+                    : ""
+                }`,
               );
               lines.push(colorize(rich, theme.muted, result.snippet));
               lines.push("");
@@ -619,4 +627,82 @@ export function registerMemoryCli(program: Command) {
         });
       },
     );
+
+  memory
+    .command("forget")
+    .description("Permanently stop recalling a phrase (removes it from memory files and the index)")
+    .argument("<phrase>", "Exact phrase to forget")
+    .option("--agent <id>", "Agent id (default: default agent)")
+    .option("--json", "Print JSON")
+    .action(async (phrase: string, opts: MemoryCommandOptions) => {
+      const cfg = loadConfig();
+      const agentId = resolveAgent(cfg, opts.agent);
+      await withManager<MemoryManager>({
+        getManager: () => getMemorySearchManager({ cfg, agentId }),
+        onMissing: (error) => defaultRuntime.log(error ?? "Memory search disabled."),
+        onCloseError: (err) =>
+          defaultRuntime.error(`Memory manager close failed: ${formatErrorMessage(err)}`),
+        close: (manager) => manager.close(),
+        run: async (manager) => {
+          try {
+            const result = await manager.forget(phrase);
+            if (opts.json) {
+              defaultRuntime.log(JSON.stringify(result, null, 2));
+              return;
+            }
+            const files = result.linesRemoved.map(
+              (f) => `${f.path} (${f.lines} line${f.lines === 1 ? "" : "s"})`,
+            );
+            defaultRuntime.log(
+              `Forgot "${result.phrase}": ${result.chunksRemoved} index chunk(s) removed` +
+                (files.length
+                  ? `; lines removed from ${files.join(", ")}`
+                  : "; no memory-file lines matched") +
+                ". Transcripts are kept on disk but will not be recalled for it.",
+            );
+          } catch (err) {
+            defaultRuntime.error(`Forget failed: ${formatErrorMessage(err)}`);
+            process.exitCode = 1;
+          }
+        },
+      });
+    });
+
+  memory
+    .command("consolidate")
+    .description(
+      "Propose MEMORY.md/USER.md updates from recent conversations (review before applying)",
+    )
+    .option("--hours <n>", "Look back this many hours (default: 24)", (value: string) =>
+      Number(value),
+    )
+    .option("--apply <date>", "Apply the reviewed proposal for this date (YYYY-MM-DD)")
+    .option("--agent <id>", "Agent id (default: default agent)")
+    .action(async (opts: MemoryCommandOptions & { hours?: number; apply?: string }) => {
+      const cfg = loadConfig();
+      const agentId = resolveAgent(cfg, opts.agent);
+      const proposalsDir = path.join(resolveStateDir(), "memory", "proposals");
+      try {
+        if (opts.apply) {
+          const { applied } = await applyConsolidationProposal(path.join(proposalsDir, opts.apply));
+          defaultRuntime.log(`Applied ${applied.join(", ")} from proposal ${opts.apply}.`);
+          return;
+        }
+        const result = await runMemoryConsolidationJob({
+          workspaceDir: resolveAgentWorkspaceDir(cfg, agentId),
+          sessionsDir: resolveSessionTranscriptsDirForAgent(agentId),
+          proposalsDir,
+          hoursWindow: opts.hours ?? 24,
+        });
+        defaultRuntime.log(
+          result.proposalDir
+            ? `Proposal written: ${shortenHomePath(path.join(result.proposalDir, "REVIEW.md"))} ` +
+                `(${result.extractedFacts} fact(s), ${result.contradictionsFound.length} contradiction(s)).`
+            : `Nothing to propose (${result.processedSessions} session(s) scanned).`,
+        );
+      } catch (err) {
+        defaultRuntime.error(`Consolidation failed: ${formatErrorMessage(err)}`);
+        process.exitCode = 1;
+      }
+    });
 }

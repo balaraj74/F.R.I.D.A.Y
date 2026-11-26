@@ -1,9 +1,9 @@
-import type { Api, AssistantMessage, Context, Model } from "@mariozechner/pi-ai";
-import { complete } from "@mariozechner/pi-ai";
-import { discoverAuthStorage, discoverModels } from "@mariozechner/pi-coding-agent";
+import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
+import { complete } from "@earendil-works/pi-ai/compat";
 
 import { getApiKeyForModel, requireApiKey } from "../../agents/model-auth.js";
 import { ensureFRIDAYModelsJson } from "../../agents/models-config.js";
+import { createPiModelRuntime } from "../../agents/pi-model-runtime.js";
 import { minimaxUnderstandImage } from "../../agents/minimax-vlm.js";
 import { coerceImageAssistantText } from "../../agents/tools/image-tool.helpers.js";
 import type { ImageDescriptionRequest, ImageDescriptionResult } from "../types.js";
@@ -12,9 +12,8 @@ export async function describeImageWithModel(
   params: ImageDescriptionRequest,
 ): Promise<ImageDescriptionResult> {
   await ensureFRIDAYModelsJson(params.cfg, params.agentDir);
-  const authStorage = discoverAuthStorage(params.agentDir);
-  const modelRegistry = discoverModels(authStorage, params.agentDir);
-  const model = modelRegistry.find(params.provider, params.model) as Model<Api> | null;
+  const { modelRuntime, modelRegistry } = await createPiModelRuntime(params.agentDir);
+  const model = modelRegistry.find(params.provider, params.model) as Model<Api> | undefined;
   if (!model) {
     throw new Error(`Unknown model: ${params.provider}/${params.model}`);
   }
@@ -29,7 +28,7 @@ export async function describeImageWithModel(
     preferredProfile: params.preferredProfile,
   });
   const apiKey = requireApiKey(apiKeyInfo, model.provider);
-  authStorage.setRuntimeApiKey(model.provider, apiKey);
+  await modelRuntime.setRuntimeApiKey(model.provider, apiKey);
 
   const base64 = params.buffer.toString("base64");
   if (model.provider === "minimax") {

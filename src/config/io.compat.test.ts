@@ -28,20 +28,6 @@ async function writeConfig(
 }
 
 describe("config io compat (new + legacy folders)", () => {
-  it("prefers ~/.friday/friday.json when both configs exist", async () => {
-    await withTempHome(async (home) => {
-      const newConfigPath = await writeConfig(home, ".friday", 19001);
-      await writeConfig(home, ".friday", 18789);
-
-      const io = createConfigIO({
-        env: {} as NodeJS.ProcessEnv,
-        homedir: () => home,
-      });
-      expect(io.configPath).toBe(newConfigPath);
-      expect(io.loadConfig().gateway?.port).toBe(19001);
-    });
-  });
-
   it("falls back to ~/.friday/friday.json when only legacy exists", async () => {
     await withTempHome(async (home) => {
       const legacyConfigPath = await writeConfig(home, ".friday", 20001);
@@ -65,37 +51,6 @@ describe("config io compat (new + legacy folders)", () => {
         homedir: () => home,
       });
 
-      expect(io.configPath).toBe(legacyConfigPath);
-      expect(io.loadConfig().gateway?.port).toBe(20002);
-    });
-  });
-
-  it("prefers friday.json over legacy filename in the same dir", async () => {
-    await withTempHome(async (home) => {
-      const preferred = await writeConfig(home, ".friday", 20003, "friday.json");
-      await writeConfig(home, ".friday", 20004, "friday.json");
-
-      const io = createConfigIO({
-        env: {} as NodeJS.ProcessEnv,
-        homedir: () => home,
-      });
-
-      expect(io.configPath).toBe(preferred);
-      expect(io.loadConfig().gateway?.port).toBe(20003);
-    });
-  });
-
-  it("honors explicit legacy config path env override", async () => {
-    await withTempHome(async (home) => {
-      const newConfigPath = await writeConfig(home, ".friday", 19002);
-      const legacyConfigPath = await writeConfig(home, ".friday", 20002);
-
-      const io = createConfigIO({
-        env: { FRIDAY_CONFIG_PATH: legacyConfigPath } as NodeJS.ProcessEnv,
-        homedir: () => home,
-      });
-
-      expect(io.configPath).not.toBe(newConfigPath);
       expect(io.configPath).toBe(legacyConfigPath);
       expect(io.loadConfig().gateway?.port).toBe(20002);
     });

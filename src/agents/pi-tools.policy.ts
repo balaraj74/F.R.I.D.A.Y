@@ -60,6 +60,7 @@ const DEFAULT_SUBAGENT_TOOL_DENY = [
   "sessions_history",
   "sessions_send",
   "sessions_spawn",
+  "swarm",
   // System admin - dangerous from subagent
   "gateway",
   "agents_list",

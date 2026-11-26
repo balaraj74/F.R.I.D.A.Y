@@ -6,8 +6,17 @@ import { createAgentsListTool } from "./tools/agents-list-tool.js";
 import { createBrowserTool } from "./tools/browser-tool.js";
 import { createCanvasTool } from "./tools/canvas-tool.js";
 import type { AnyAgentTool } from "./tools/common.js";
+import { createCommitmentsTool } from "./tools/commitments-tool.js";
 import { createCronTool } from "./tools/cron-tool.js";
+import { createAutomationsTool } from "./tools/automations-tool.js";
+import { createCodeTool } from "./tools/code-tool.js";
+import { createFilesTool } from "./tools/files-tool.js";
+import { createJobsTool } from "./tools/jobs-tool.js";
+import { createKnowledgeTool } from "./tools/knowledge-tool.js";
+import { createRunCodeTool } from "./tools/run-code-tool.js";
 import { createGatewayTool } from "./tools/gateway-tool.js";
+import { createDesignChooseTool, createDesignReferencesTool } from "./tools/design-tools.js";
+import { createImageGenerateTool } from "./tools/image-generate-tool.js";
 import { createImageTool } from "./tools/image-tool.js";
 import { createMessageTool } from "./tools/message-tool.js";
 import { createNodesTool } from "./tools/nodes-tool.js";
@@ -16,8 +25,10 @@ import { createSessionsHistoryTool } from "./tools/sessions-history-tool.js";
 import { createSessionsListTool } from "./tools/sessions-list-tool.js";
 import { createSessionsSendTool } from "./tools/sessions-send-tool.js";
 import { createSessionsSpawnTool } from "./tools/sessions-spawn-tool.js";
+import { createSwarmTool } from "./tools/swarm-tool.js";
 import { createWebFetchTool, createWebSearchTool } from "./tools/web-tools.js";
 import { createTtsTool } from "./tools/tts-tool.js";
+import { mcpManager } from "./mcp/manager.js";
 
 export function createFRIDAYTools(options?: {
   sandboxBrowserBridgeUrl?: string;
@@ -53,6 +64,8 @@ export function createFRIDAYTools(options?: {
   modelHasVision?: boolean;
   /** Explicit agent ID override for cron/hook sessions. */
   requesterAgentIdOverride?: string;
+  /** Nobody asked: heartbeat/cron run (sub-agents it starts stay autonomous). */
+  autonomous?: boolean;
 }): AnyAgentTool[] {
   const imageTool = options?.agentDir?.trim()
     ? createImageTool({
@@ -70,6 +83,7 @@ export function createFRIDAYTools(options?: {
     config: options?.config,
     sandboxed: options?.sandboxed,
   });
+  const runCodeTool = createRunCodeTool();
   const tools: AnyAgentTool[] = [
     createBrowserTool({
       sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
@@ -83,6 +97,15 @@ export function createFRIDAYTools(options?: {
     createCronTool({
       agentSessionKey: options?.agentSessionKey,
     }),
+    createCommitmentsTool({ agentSessionKey: options?.agentSessionKey }),
+    createKnowledgeTool({ agentSessionKey: options?.agentSessionKey }),
+    createFilesTool(),
+    createImageGenerateTool({ config: options?.config, workspaceDir: options?.workspaceDir }),
+    createDesignReferencesTool({ config: options?.config, workspaceDir: options?.workspaceDir }),
+    createDesignChooseTool(),
+    createJobsTool({ workspaceDir: options?.workspaceDir }),
+    createCodeTool({ workspaceDir: options?.workspaceDir }),
+    createAutomationsTool(),
     createMessageTool({
       agentAccountId: options?.agentAccountId,
       agentSessionKey: options?.agentSessionKey,
@@ -129,6 +152,15 @@ export function createFRIDAYTools(options?: {
       agentGroupSpace: options?.agentGroupSpace,
       sandboxed: options?.sandboxed,
       requesterAgentIdOverride: options?.requesterAgentIdOverride,
+      autonomous: options?.autonomous,
+    }),
+    createSwarmTool({
+      config: options?.config,
+      agentId: resolveSessionAgentId({
+        sessionKey: options?.agentSessionKey,
+        config: options?.config,
+      }),
+      autonomous: options?.autonomous,
     }),
     createSessionStatusTool({
       agentSessionKey: options?.agentSessionKey,
@@ -137,6 +169,9 @@ export function createFRIDAYTools(options?: {
     ...(webSearchTool ? [webSearchTool] : []),
     ...(webFetchTool ? [webFetchTool] : []),
     ...(imageTool ? [imageTool] : []),
+    ...(runCodeTool ? [runCodeTool] : []),
+    // Tools from connected MCP servers (config: mcp.servers).
+    ...mcpManager.agentTools(),
   ];
 
   const pluginTools = resolvePluginTools({

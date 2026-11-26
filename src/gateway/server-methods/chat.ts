@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { CURRENT_SESSION_VERSION } from "@mariozechner/pi-coding-agent";
+import { CURRENT_SESSION_VERSION } from "@earendil-works/pi-coding-agent";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { resolveEffectiveMessagesConfig, resolveIdentityName } from "../../agents/identity.js";
 import { resolveThinkingDefault } from "../../agents/model-selection.js";
@@ -40,6 +40,7 @@ import {
   resolveSessionModelRef,
 } from "../session-utils.js";
 import { stripEnvelopeFromMessages } from "../chat-sanitize.js";
+import { maybeGenerateSessionTitle } from "../session-title.js";
 import { formatForLog } from "../ws-log.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "./types.js";
 
@@ -493,6 +494,8 @@ export const chatHandlers: GatewayRequestHandlers = {
           abortSignal: abortController.signal,
           images: parsedImages.length > 0 ? parsedImages : undefined,
           disableBlockStreaming: true,
+          // The HUD shows her thinking live, like a work log; other channels keep their own setting.
+          defaultReasoningLevel: "stream",
           onAgentRunStart: () => {
             agentRunStarted = true;
           },
@@ -502,9 +505,26 @@ export const chatHandlers: GatewayRequestHandlers = {
             prefixContext.modelFull = `${ctx.provider}/${ctx.model}`;
             prefixContext.thinkingLevel = ctx.thinkLevel ?? "off";
           },
+          onReasoningStream: async (payload) => {
+            const text = payload.text ?? "";
+            if (text) {
+              context.broadcast("agent", {
+                runId: clientRunId,
+                sessionKey: p.sessionKey,
+                stream: "thinking",
+                ts: Date.now(),
+                data: { text },
+              });
+            }
+          },
         },
       })
         .then(() => {
+          // Name the chat after its first exchange; runs in the background and never blocks the reply.
+          void maybeGenerateSessionTitle({
+            sessionKey: p.sessionKey,
+            onTitled: () => context.broadcast("sessions.changed", { sessionKey: p.sessionKey }),
+          });
           if (!agentRunStarted) {
             const combinedReply = finalReplyParts
               .map((part) => part.trim())

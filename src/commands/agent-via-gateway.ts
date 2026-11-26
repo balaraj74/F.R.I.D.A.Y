@@ -36,6 +36,7 @@ export type AgentCliOpts = {
   agent?: string;
   to?: string;
   sessionId?: string;
+  sessionKey?: string;
   thinking?: string;
   verbose?: string;
   json?: boolean;
@@ -82,8 +83,10 @@ function formatPayloadForLog(payload: {
 export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: RuntimeEnv) {
   const body = (opts.message ?? "").trim();
   if (!body) throw new Error("Message (--message) is required");
-  if (!opts.to && !opts.sessionId && !opts.agent) {
-    throw new Error("Pass --to <E.164>, --session-id, or --agent to choose a session");
+  if (!opts.to && !opts.sessionId && !opts.agent && !opts.sessionKey) {
+    throw new Error(
+      "Pass --to <E.164>, --session-id, --session-key, or --agent to choose a session",
+    );
   }
 
   const cfg = loadConfig();
@@ -100,12 +103,15 @@ export async function agentViaGatewayCommand(opts: AgentCliOpts, runtime: Runtim
   const timeoutSeconds = parseTimeoutSeconds({ cfg, timeout: opts.timeout });
   const gatewayTimeoutMs = Math.max(10_000, (timeoutSeconds + 30) * 1000);
 
-  const sessionKey = resolveSessionKeyForRequest({
-    cfg,
-    agentId,
-    to: opts.to,
-    sessionId: opts.sessionId,
-  }).sessionKey;
+  const sessionKey =
+    opts.sessionKey?.trim() ||
+    resolveSessionKeyForRequest({
+      cfg,
+      agentId,
+      to: opts.to,
+      sessionId: opts.sessionId,
+      sessionKey: opts.sessionKey,
+    }).sessionKey;
 
   const channel = normalizeMessageChannel(opts.channel) ?? DEFAULT_CHAT_CHANNEL;
   const idempotencyKey = opts.runId?.trim() || randomIdempotencyKey();

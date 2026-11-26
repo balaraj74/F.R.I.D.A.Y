@@ -7,7 +7,7 @@ import { detectLegacyWorkspaceDirs } from "./doctor-workspace.js";
 describe("detectLegacyWorkspaceDirs", () => {
   it("ignores ~/friday when it doesn't look like a workspace (e.g. install dir)", () => {
     const home = "/home/user";
-    const workspaceDir = "/home/user/friday";
+    const workspaceDir = "/home/user/.friday/workspace";
     const candidate = path.join(home, "friday");
 
     const detection = detectLegacyWorkspaceDirs({
@@ -22,7 +22,7 @@ describe("detectLegacyWorkspaceDirs", () => {
 
   it("flags ~/friday when it contains workspace markers", () => {
     const home = "/home/user";
-    const workspaceDir = "/home/user/friday";
+    const workspaceDir = "/home/user/.friday/workspace";
     const candidate = path.join(home, "friday");
     const agentsPath = path.join(candidate, "AGENTS.md");
 

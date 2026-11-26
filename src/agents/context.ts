@@ -10,12 +10,11 @@ type ModelEntry = { id: string; contextWindow?: number };
 const MODEL_CACHE = new Map<string, number>();
 const loadPromise = (async () => {
   try {
-    const { discoverAuthStorage, discoverModels } = await import("@mariozechner/pi-coding-agent");
+    const { createPiModelRuntime } = await import("./pi-model-runtime.js");
     const cfg = loadConfig();
     await ensureFRIDAYModelsJson(cfg);
     const agentDir = resolveFRIDAYAgentDir();
-    const authStorage = discoverAuthStorage(agentDir);
-    const modelRegistry = discoverModels(authStorage, agentDir);
+    const { modelRegistry } = await createPiModelRuntime(agentDir);
     const models = modelRegistry.getAll() as ModelEntry[];
     for (const m of models) {
       if (!m?.id) continue;

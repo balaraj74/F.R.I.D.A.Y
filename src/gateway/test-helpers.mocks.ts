@@ -227,19 +227,18 @@ export const testIsNixMode = hoisted.testIsNixMode;
 export const sessionStoreSaveDelayMs = hoisted.sessionStoreSaveDelayMs;
 export const embeddedRunMock = hoisted.embeddedRunMock;
 
-vi.mock("@mariozechner/pi-coding-agent", async () => {
-  const actual = await vi.importActual<typeof import("@mariozechner/pi-coding-agent")>(
-    "@mariozechner/pi-coding-agent",
+// pi 1.x: model discovery goes through FRIDAY's ModelRuntime wrapper (was pi `discoverModels`).
+vi.mock("../agents/pi-model-runtime.js", async () => {
+  const actual = await vi.importActual<typeof import("../agents/pi-model-runtime.js")>(
+    "../agents/pi-model-runtime.js",
   );
 
   return {
     ...actual,
-    discoverModels: (...args: unknown[]) => {
-      if (!piSdkMock.enabled) {
-        return (actual.discoverModels as (...args: unknown[]) => unknown)(...args);
-      }
+    createPiModelRuntime: async (agentDir: string) => {
+      if (!piSdkMock.enabled) return actual.createPiModelRuntime(agentDir);
       piSdkMock.discoverCalls += 1;
-      return piSdkMock.models;
+      return { modelRuntime: {}, modelRegistry: piSdkMock.models };
     },
   };
 });

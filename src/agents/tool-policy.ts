@@ -50,6 +50,7 @@ export const TOOL_GROUPS: Record<string, string[]> = {
     "session_status",
     "memory_search",
     "memory_get",
+    "memory_forget",
     "web_search",
     "web_fetch",
     "image",

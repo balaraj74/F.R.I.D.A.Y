@@ -18,10 +18,16 @@ const memoryCorePlugin = {
           config: ctx.config,
           agentSessionKey: ctx.sessionKey,
         });
+        const memoryForgetTool = api.runtime.tools.createMemoryForgetTool({
+          config: ctx.config,
+          agentSessionKey: ctx.sessionKey,
+        });
         if (!memorySearchTool || !memoryGetTool) return null;
-        return [memorySearchTool, memoryGetTool];
+        return memoryForgetTool
+          ? [memorySearchTool, memoryGetTool, memoryForgetTool]
+          : [memorySearchTool, memoryGetTool];
       },
-      { names: ["memory_search", "memory_get"] },
+      { names: ["memory_search", "memory_get", "memory_forget"] },
     );
 
     api.registerCli(

@@ -1,4 +1,4 @@
-import type { ImageContent } from "@mariozechner/pi-ai";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type { TypingController } from "./reply/typing.js";
 
 export type BlockReplyContext = {
@@ -27,6 +27,8 @@ export type GetReplyOptions = {
   isHeartbeat?: boolean;
   onPartialReply?: (payload: ReplyPayload) => Promise<void> | void;
   onReasoningStream?: (payload: ReplyPayload) => Promise<void> | void;
+  /** Reasoning level when neither the message nor the session sets one (e.g. "stream" for the HUD). */
+  defaultReasoningLevel?: "off" | "on" | "stream";
   onBlockReply?: (payload: ReplyPayload, context?: BlockReplyContext) => Promise<void> | void;
   onToolResult?: (payload: ReplyPayload) => Promise<void> | void;
   /** Called when the actual model is selected (including after fallback).

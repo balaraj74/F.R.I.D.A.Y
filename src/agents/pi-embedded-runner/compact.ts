@@ -6,7 +6,7 @@ import {
   estimateTokens,
   SessionManager,
   SettingsManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 import { resolveHeartbeatPrompt } from "../../auto-reply/heartbeat.js";
 import type { ReasoningLevel, ThinkLevel } from "../../auto-reply/thinking.js";
@@ -63,7 +63,8 @@ import { log } from "./logger.js";
 import { buildModelAliasLines, resolveModel } from "./model.js";
 import { buildEmbeddedSandboxInfo } from "./sandbox-info.js";
 import { prewarmSessionFile, trackSessionManagerAccess } from "./session-manager-cache.js";
-import { buildEmbeddedSystemPrompt, createSystemPromptOverride } from "./system-prompt.js";
+import { buildEmbeddedSystemPrompt } from "./system-prompt.js";
+import { createEmbeddedResourceLoader, visibleMessages } from "./session-resources.js";
 import { splitSdkTools } from "./tool-split.js";
 import type { EmbeddedPiCompactResult } from "./types.js";
 import { formatUserTime, resolveUserTimeFormat, resolveUserTimezone } from "../date-time.js";
@@ -116,7 +117,7 @@ export async function compactEmbeddedPiSessionDirect(
   const modelId = (params.model ?? DEFAULT_MODEL).trim() || DEFAULT_MODEL;
   const agentDir = params.agentDir ?? resolveFRIDAYAgentDir();
   await ensureFRIDAYModelsJson(params.config, agentDir);
-  const { model, error, authStorage, modelRegistry } = resolveModel(
+  const { model, error, modelRuntime } = await resolveModel(
     provider,
     modelId,
     agentDir,
@@ -148,9 +149,9 @@ export async function compactEmbeddedPiSessionDirect(
       const copilotToken = await resolveCopilotApiToken({
         githubToken: apiKeyInfo.apiKey,
       });
-      authStorage.setRuntimeApiKey(model.provider, copilotToken.token);
+      await modelRuntime.setRuntimeApiKey(model.provider, copilotToken.token);
     } else {
-      authStorage.setRuntimeApiKey(model.provider, apiKeyInfo.apiKey);
+      await modelRuntime.setRuntimeApiKey(model.provider, apiKeyInfo.apiKey);
     }
   } catch (err) {
     return {
@@ -347,7 +348,7 @@ export async function compactEmbeddedPiSessionDirect(
       userTimeFormat,
       contextFiles,
     });
-    const systemPrompt = createSystemPromptOverride(appendPrompt);
+    const systemPrompt = appendPrompt.trim();
 
     const sessionLock = await acquireSessionWriteLock({
       sessionFile: params.sessionFile,
@@ -383,27 +384,33 @@ export async function compactEmbeddedPiSessionDirect(
         sandboxEnabled: !!sandbox?.enabled,
       });
 
+      void builtInTools;
+      const resourceLoader = await createEmbeddedResourceLoader({
+        cwd: resolvedWorkspace,
+        agentDir,
+        settingsManager,
+        systemPrompt,
+        additionalExtensionPaths,
+      });
       let session: Awaited<ReturnType<typeof createAgentSession>>["session"];
       ({ session } = await createAgentSession({
         cwd: resolvedWorkspace,
         agentDir,
-        authStorage,
-        modelRegistry,
+        modelRuntime,
         model,
         thinkingLevel: mapThinkingLevel(params.thinkLevel),
-        systemPrompt,
-        tools: builtInTools,
+        noTools: "builtin",
         customTools,
+        resourceLoader,
         sessionManager,
         settingsManager,
-        skills: [],
-        contextFiles: [],
-        additionalExtensionPaths,
       }));
 
       try {
+        // Sanitizing still records model snapshots / turn-order fixes in the transcript. pi 1.x
+        // compacts the canonical SessionManager branch, so the limited view is no longer swapped in.
         const prior = await sanitizeSessionHistory({
-          messages: session.messages,
+          messages: visibleMessages(session.messages),
           modelApi: model.api,
           modelId,
           provider,
@@ -421,9 +428,7 @@ export async function compactEmbeddedPiSessionDirect(
           validated,
           getDmHistoryLimitFromSessionKey(params.sessionKey, params.config),
         );
-        if (limited.length > 0) {
-          session.agent.replaceMessages(limited);
-        }
+        void limited;
         const result = await session.compact(params.customInstructions);
         // Estimate tokens after compaction by summing token estimates for remaining messages
         let tokensAfter: number | undefined;

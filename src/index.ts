@@ -44,6 +44,7 @@ enableConsoleCapture();
 // Enforce the minimum supported runtime before doing any work.
 assertSupportedRuntime();
 
+import { isBenignProcessError, noteBenignProcessError } from "./infra/benign-errors.js";
 import { buildProgram } from "./cli/program.js";
 
 const program = buildProgram();
@@ -83,6 +84,10 @@ if (isMain) {
   installUnhandledRejectionHandler();
 
   process.on("uncaughtException", (error) => {
+    if (isBenignProcessError(error)) {
+      noteBenignProcessError(error);
+      return;
+    }
     console.error("[friday] Uncaught exception:", formatUncaughtError(error));
     process.exit(1);
   });

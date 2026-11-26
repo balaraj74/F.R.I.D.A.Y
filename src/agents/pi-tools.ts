@@ -1,10 +1,9 @@
 import {
-  codingTools,
+  createCodingTools,
   createEditTool,
   createReadTool,
   createWriteTool,
-  readTool,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type { FRIDAYConfig } from "../config/config.js";
 import { isSubagentSessionKey } from "../routing/session-key.js";
 import { resolveGatewayMessageChannel } from "../utils/message-channel.js";
@@ -19,6 +18,9 @@ import { listChannelAgentTools } from "./channel-tools.js";
 import { createFRIDAYTools } from "./friday-tools.js";
 import type { ModelAuthMode } from "./model-auth.js";
 import { wrapToolWithAbortSignal } from "./pi-tools.abort.js";
+import { wrapToolWithTraits } from "./tool-traits.js";
+import { wrapToolWithTrust } from "./tool-trust.js";
+import { isAutonomousRun } from "../infra/autonomy-trust.js";
 import {
   filterToolsByPolicy,
   isToolAllowedByPolicies,
@@ -226,8 +228,11 @@ export function createFRIDAYCodingTools(options?: {
       allowModels: applyPatchConfig?.allowModels,
     });
 
-  const base = (codingTools as unknown as AnyAgentTool[]).flatMap((tool) => {
-    if (tool.name === readTool.name) {
+  // pi 1.x dropped the cwd-bound `codingTools`/`readTool` singletons; build the same four
+  // tools (read, bash, edit, write) for this workspace instead.
+  const codingTools = createCodingTools(workspaceRoot) as unknown as AnyAgentTool[];
+  const base = codingTools.flatMap((tool) => {
+    if (tool.name === "read") {
       if (sandboxRoot) {
         return [createSandboxedReadTool(sandboxRoot)];
       }
@@ -334,6 +339,10 @@ export function createFRIDAYCodingTools(options?: {
       hasRepliedRef: options?.hasRepliedRef,
       modelHasVision: options?.modelHasVision,
       requesterAgentIdOverride: agentId,
+      autonomous: isAutonomousRun({
+        messageProvider: options?.messageProvider,
+        sessionKey: options?.sessionKey,
+      }),
     }),
   ];
   const coreToolNames = new Set(
@@ -408,7 +417,17 @@ export function createFRIDAYCodingTools(options?: {
     : sandboxed;
   // Always normalize tool JSON Schemas before handing them to pi-agent/pi-ai.
   // Without this, some providers (notably OpenAI) will reject root-level union schemas.
-  const normalized = subagentFiltered.map(normalizeToolParameters);
+  // Tool traits: timeouts + retries for read-only tools, result size caps, parallel-safe flag.
+  // Earned trust: track record per action kind; autonomous runs only do what they've earned.
+  const trustCtx = {
+    config: options?.config,
+    messageProvider: options?.messageProvider,
+    sessionKey: options?.sessionKey,
+    workspaceDir: options?.workspaceDir,
+  };
+  const normalized = subagentFiltered
+    .map(normalizeToolParameters)
+    .map((tool) => wrapToolWithTraits(wrapToolWithTrust(tool, trustCtx)));
   const withAbort = options?.abortSignal
     ? normalized.map((tool) => wrapToolWithAbortSignal(tool, options.abortSignal))
     : normalized;

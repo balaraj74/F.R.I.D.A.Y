@@ -5,7 +5,7 @@ import {
   type TUI,
   Key,
   matchesKey,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 
 export class CustomEditor extends Editor {
   onEscape?: () => void;

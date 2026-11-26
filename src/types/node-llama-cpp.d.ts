@@ -5,12 +5,16 @@ declare module "node-llama-cpp" {
 
   export type LlamaEmbedding = { vector: Float32Array | number[] };
 
+  export type Token = number & { __token?: never };
+
   export type LlamaEmbeddingContext = {
-    getEmbeddingFor: (text: string) => Promise<LlamaEmbedding>;
+    getEmbeddingFor: (input: string | Token[]) => Promise<LlamaEmbedding>;
   };
 
   export type LlamaModel = {
     createEmbeddingContext: () => Promise<LlamaEmbeddingContext>;
+    tokenize: (text: string) => Token[];
+    readonly trainContextSize: number;
   };
 
   export type Llama = {

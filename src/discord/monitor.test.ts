@@ -130,14 +130,14 @@ describe("DiscordMessageListener", () => {
 
 describe("discord allowlist helpers", () => {
   it("normalizes slugs", () => {
-    expect(normalizeDiscordSlug("Friends of Clawd")).toBe("friends-of-friday");
+    expect(normalizeDiscordSlug("Friends of FRIDAY")).toBe("friends-of-friday");
     expect(normalizeDiscordSlug("#General")).toBe("general");
     expect(normalizeDiscordSlug("Dev__Chat")).toBe("dev-chat");
   });
 
   it("matches ids or names", () => {
     const allow = normalizeDiscordAllowList(
-      ["123", "steipete", "Friends of Clawd"],
+      ["123", "steipete", "Friends of FRIDAY"],
       ["discord:", "user:", "guild:", "channel:"],
     );
     expect(allow).not.toBeNull();
@@ -157,7 +157,7 @@ describe("discord guild/channel resolution", () => {
       "123": { slug: "friends-of-friday" },
     });
     const resolved = resolveDiscordGuildEntry({
-      guild: fakeGuild("123", "Friends of Clawd"),
+      guild: fakeGuild("123", "Friends of FRIDAY"),
       guildEntries,
     });
     expect(resolved?.id).toBe("123");
@@ -169,7 +169,7 @@ describe("discord guild/channel resolution", () => {
       "friends-of-friday": { slug: "friends-of-friday" },
     });
     const resolved = resolveDiscordGuildEntry({
-      guild: fakeGuild("123", "Friends of Clawd"),
+      guild: fakeGuild("123", "Friends of FRIDAY"),
       guildEntries,
     });
     expect(resolved?.id).toBe("123");
@@ -181,7 +181,7 @@ describe("discord guild/channel resolution", () => {
       "*": { requireMention: false },
     });
     const resolved = resolveDiscordGuildEntry({
-      guild: fakeGuild("123", "Friends of Clawd"),
+      guild: fakeGuild("123", "Friends of FRIDAY"),
       guildEntries,
     });
     expect(resolved?.id).toBe("123");

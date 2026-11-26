@@ -1,8 +1,8 @@
 import { EventEmitter } from "node:events";
 
-import type { AgentMessage, AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import type { TSchema } from "@sinclair/typebox";
-import type { SessionManager } from "@mariozechner/pi-coding-agent";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
 import { registerUnhandledRejectionHandler } from "../../infra/unhandled-rejections.js";
 import {
@@ -143,7 +143,8 @@ function findUnsupportedSchemaKeywords(schema: unknown, path: string): string[] 
 }
 
 export function sanitizeToolsForGoogle<
-  TSchemaType extends TSchema = TSchema,
+  // pi 1.x tools take any JSON Schema object, not only TypeBox schemas.
+  TSchemaType extends object = TSchema,
   TResult = unknown,
 >(params: {
   tools: AgentTool<TSchemaType, TResult>[];

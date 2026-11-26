@@ -1,4 +1,4 @@
-import type { OAuthCredentials } from "@mariozechner/pi-ai";
+import type { OAuthCredentials } from "@earendil-works/pi-ai";
 import { resolveFRIDAYAgentDir } from "../agents/agent-paths.js";
 import { upsertAuthProfile } from "../agents/auth-profiles.js";
 
@@ -11,7 +11,8 @@ export async function writeOAuthCredentials(
 ): Promise<void> {
   // Write to resolved agent dir so gateway finds credentials on startup.
   upsertAuthProfile({
-    profileId: `${provider}:${creds.email ?? "default"}`,
+    // pi 1.x types extra credential fields as unknown.
+    profileId: `${provider}:${typeof creds.email === "string" && creds.email ? creds.email : "default"}`,
     credential: {
       type: "oauth",
       provider,

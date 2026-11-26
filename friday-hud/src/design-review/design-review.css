@@ -1,0 +1,22 @@
+/* Intentionally plain. This predates the design tokens (see README.md). */
+.dr-gallery {
+  font-family: system-ui, sans-serif;
+  color: #222;
+  background: #fff;
+  padding: 16px;
+}
+.dr-title { font-size: 20px; margin: 0 0 16px; }
+.dr-screen { margin-bottom: 24px; }
+.dr-screen h2 { font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+.dr-direction h3 { font-size: 14px; margin: 12px 0 8px; }
+.dr-list { display: flex; flex-wrap: wrap; gap: 12px; list-style: none; margin: 0; padding: 0; }
+.dr-card { width: 320px; border: 1px solid #ccc; padding: 8px; }
+.dr-image { display: block; width: 100%; height: auto; }
+.dr-placeholder { border: 1px dashed #a00; color: #a00; padding: 12px; min-height: 120px; }
+.dr-placeholder-reason { margin-top: 4px; font-size: 12px; }
+.dr-verdicts { display: flex; gap: 12px; margin: 8px 0; }
+.dr-verdict { display: flex; align-items: center; gap: 4px; }
+.dr-note { width: 100%; box-sizing: border-box; font: inherit; }
+.dr-status { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.dr-error { color: #a00; }
+.dr-empty { font-size: 12px; color: #666; }

@@ -395,7 +395,7 @@ describe("doctor command", () => {
       parsed: {},
       valid: true,
       config: {
-        agents: { defaults: { workspace: "/Users/steipete/friday" } },
+        agents: { defaults: { workspace: "/Users/steipete/.friday/workspace" } },
       },
       issues: [],
       legacyIssues: [],

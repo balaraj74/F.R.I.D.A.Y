@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@mariozechner/pi-coding-agent", () => ({
-  discoverAuthStorage: vi.fn(() => ({ mocked: true })),
-  discoverModels: vi.fn(() => ({ find: vi.fn(() => null) })),
+vi.mock("../pi-model-runtime.js", () => ({
+  createPiModelRuntime: vi.fn(async () => ({
+    modelRuntime: { mocked: true },
+    modelRegistry: { find: vi.fn(() => undefined) },
+  })),
 }));
 
 import type { FRIDAYConfig } from "../../config/config.js";
@@ -109,7 +111,7 @@ describe("buildInlineProviderModels", () => {
 });
 
 describe("resolveModel", () => {
-  it("includes provider baseUrl in fallback model", () => {
+  it("includes provider baseUrl in fallback model", async () => {
     const cfg = {
       models: {
         providers: {
@@ -121,7 +123,7 @@ describe("resolveModel", () => {
       },
     } as FRIDAYConfig;
 
-    const result = resolveModel("custom", "missing-model", "/tmp/agent", cfg);
+    const result = await resolveModel("custom", "missing-model", "/tmp/agent", cfg);
 
     expect(result.model?.baseUrl).toBe("http://localhost:9000");
     expect(result.model?.provider).toBe("custom");

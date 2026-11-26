@@ -44,9 +44,12 @@ vi.mock("../agents/model-auth.js", () => ({
   getCustomProviderApiKey,
 }));
 
-vi.mock("@mariozechner/pi-coding-agent", () => ({
-  discoverAuthStorage,
-  discoverModels,
+// pi 1.x: the registry comes from FRIDAY's ModelRuntime wrapper (was pi `discoverModels`).
+vi.mock("../agents/pi-model-runtime.js", () => ({
+  createPiModelRuntime: vi.fn(async (agentDir: string) => ({
+    modelRuntime: discoverAuthStorage(agentDir),
+    modelRegistry: discoverModels(agentDir),
+  })),
 }));
 
 function makeRuntime() {

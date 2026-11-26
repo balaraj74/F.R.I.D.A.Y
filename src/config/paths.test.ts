@@ -40,7 +40,6 @@ describe("state + config path candidates", () => {
   it("prefers FRIDAY_STATE_DIR over legacy state dir env", () => {
     const env = {
       FRIDAY_STATE_DIR: "/new/state",
-      FRIDAY_STATE_DIR: "/legacy/state",
     } as NodeJS.ProcessEnv;
 
     expect(resolveStateDir(env, () => "/home/test")).toBe(path.resolve("/new/state"));
@@ -74,8 +73,6 @@ describe("state + config path candidates", () => {
     const previousHomeDrive = process.env.HOMEDRIVE;
     const previousHomePath = process.env.HOMEPATH;
     const previousFRIDAYConfig = process.env.FRIDAY_CONFIG_PATH;
-    const previousFRIDAYConfig = process.env.FRIDAY_CONFIG_PATH;
-    const previousFRIDAYState = process.env.FRIDAY_STATE_DIR;
     const previousFRIDAYState = process.env.FRIDAY_STATE_DIR;
     try {
       const legacyDir = path.join(root, ".friday");
@@ -91,8 +88,6 @@ describe("state + config path candidates", () => {
         process.env.HOMEPATH = root.slice(parsed.root.length - 1);
       }
       delete process.env.FRIDAY_CONFIG_PATH;
-      delete process.env.FRIDAY_CONFIG_PATH;
-      delete process.env.FRIDAY_STATE_DIR;
       delete process.env.FRIDAY_STATE_DIR;
 
       vi.resetModules();

@@ -55,6 +55,22 @@ describe("resolveSkillCommandInvocation", () => {
     });
     expect(invocation).toBeNull();
   });
+
+  it("matches hyphenated slash commands directly (e.g. /human-deep-research)", () => {
+    const invocation = resolveSkillCommandInvocation({
+      commandBodyNormalized: "/human-deep-research analyze quantum computing in 2026",
+      skillCommands: [
+        {
+          name: "human_deep_research",
+          skillName: "human-deep-research",
+          description: "Deep Research",
+        },
+      ],
+    });
+    expect(invocation).not.toBeNull();
+    expect(invocation?.command.skillName).toBe("human-deep-research");
+    expect(invocation?.args).toBe("analyze quantum computing in 2026");
+  });
 });
 
 describe("listSkillCommandsForAgents", () => {

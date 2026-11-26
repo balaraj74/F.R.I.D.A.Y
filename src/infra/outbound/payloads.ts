@@ -1,3 +1,4 @@
+import { stripExpressionTags } from "../expression-tags.js";
 import { parseReplyDirectives } from "../../auto-reply/reply/reply-directives.js";
 import { isRenderablePayload } from "../../auto-reply/reply/reply-payloads.js";
 import type { ReplyPayload } from "../../auto-reply/types.js";
@@ -33,7 +34,7 @@ function mergeMediaUrls(...lists: Array<Array<string | undefined> | undefined>):
 
 export function normalizeReplyPayloadsForDelivery(payloads: ReplyPayload[]): ReplyPayload[] {
   return payloads.flatMap((payload) => {
-    const parsed = parseReplyDirectives(payload.text ?? "");
+    const parsed = parseReplyDirectives(stripExpressionTags(payload.text ?? ""));
     const explicitMediaUrls = payload.mediaUrls ?? parsed.mediaUrls;
     const explicitMediaUrl = payload.mediaUrl ?? parsed.mediaUrl;
     const mergedMedia = mergeMediaUrls(

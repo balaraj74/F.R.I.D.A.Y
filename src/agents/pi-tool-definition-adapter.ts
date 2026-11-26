@@ -2,8 +2,8 @@ import type {
   AgentTool,
   AgentToolResult,
   AgentToolUpdateCallback,
-} from "@mariozechner/pi-agent-core";
-import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-agent-core";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { ClientToolDefinition } from "./pi-embedded-runner/run/params.js";
 import { logDebug, logError } from "../logger.js";
 import { normalizeToolName } from "./tool-policy.js";
@@ -23,6 +23,16 @@ function describeToolExecutionError(err: unknown): {
   return { message: String(err) };
 }
 
+/**
+ * pi 1.x runs a batch of tool calls concurrently unless one of them is marked "sequential", and
+ * its default mode is "parallel". Only tools whose traits mark them read-only/idempotent
+ * (`parallelSafe`, set by `wrapToolWithTraits`) may run in parallel; everything else (exec,
+ * writes, messaging, unknown tools) is pinned to sequential, matching the old FRIDAY patch.
+ */
+function resolveExecutionMode(tool: AnyAgentTool): "parallel" | "sequential" {
+  return (tool as { parallelSafe?: unknown }).parallelSafe === true ? "parallel" : "sequential";
+}
+
 export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {
   return tools.map((tool) => {
     const name = tool.name || "tool";
@@ -33,15 +43,17 @@ export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {
       description: tool.description ?? "",
       // biome-ignore lint/suspicious/noExplicitAny: TypeBox schema from pi-agent-core uses a different module instance.
       parameters: tool.parameters as any,
+      // Runs before schema validation, e.g. folding legacy edit fields into `edits[]`.
+      prepareArguments: tool.prepareArguments as ToolDefinition["prepareArguments"],
+      executionMode: resolveExecutionMode(tool),
       execute: async (
         toolCallId,
         params,
+        signal: AbortSignal | undefined,
         onUpdate: AgentToolUpdateCallback<unknown> | undefined,
-        _ctx,
-        signal,
       ): Promise<AgentToolResult<unknown>> => {
-        // KNOWN: pi-coding-agent `ToolDefinition.execute` has a different signature/order
-        // than pi-agent-core `AgentTool.execute`. This adapter keeps our existing tools intact.
+        // pi 1.x `ToolDefinition.execute` matches `AgentTool.execute` order (id, params, signal,
+        // onUpdate) plus a trailing extension context we don't need.
         try {
           return await tool.execute(toolCallId, params, signal, onUpdate);
         } catch (err) {
@@ -80,13 +92,8 @@ export function toClientToolDefinitions(
       label: func.name,
       description: func.description ?? "",
       parameters: func.parameters as any,
-      execute: async (
-        toolCallId,
-        params,
-        _onUpdate: AgentToolUpdateCallback<unknown> | undefined,
-        _ctx,
-        _signal,
-      ): Promise<AgentToolResult<unknown>> => {
+      executionMode: "sequential",
+      execute: async (toolCallId, params): Promise<AgentToolResult<unknown>> => {
         // Notify handler that a client tool was called
         if (onClientToolCall) {
           onClientToolCall(func.name, params as Record<string, unknown>);

@@ -164,7 +164,23 @@ function formatConsoleLine(opts: {
   return `${head} ${levelColor(displayMessage)}`;
 }
 
+// If the terminal the gateway was started from goes away (closed tmux pane, dead SSH), writes
+// to stdout/stderr fail with EIO/EPIPE. Unhandled, that 'error' event crashed the gateway.
+// Console output is best-effort; the file log keeps everything.
+let consoleGuardsInstalled = false;
+function installConsoleGuards() {
+  if (consoleGuardsInstalled) return;
+  consoleGuardsInstalled = true;
+  for (const stream of [process.stdout, process.stderr]) {
+    stream?.on?.("error", (err: NodeJS.ErrnoException) => {
+      if (err?.code === "EIO" || err?.code === "EPIPE") return;
+      throw err;
+    });
+  }
+}
+
 function writeConsoleLine(level: LogLevel, line: string) {
+  installConsoleGuards();
   clearActiveProgressLine();
   const sanitized =
     process.platform === "win32" && process.env.GITHUB_ACTIONS === "true"

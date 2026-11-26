@@ -313,14 +313,14 @@ describe("mention helpers", () => {
   });
 
   it("normalizes zero-width characters", () => {
-    expect(normalizeMentionText("cl\u200bawd")).toBe("friday");
+    expect(normalizeMentionText("fri\u200bday")).toBe("friday");
   });
 
   it("matches patterns case-insensitively", () => {
     const regexes = buildMentionRegexes({
       messages: { groupChat: { mentionPatterns: ["\\bfriday\\b"] } },
     });
-    expect(matchesMentionPatterns("CLAWD: hi", regexes)).toBe(true);
+    expect(matchesMentionPatterns("FRIDAY: hi", regexes)).toBe(true);
   });
 
   it("uses per-agent mention patterns when configured", () => {

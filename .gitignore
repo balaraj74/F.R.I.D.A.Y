@@ -71,3 +71,35 @@ USER.md
 
 # local tooling
 .serena/
+
+# Python cache
+__pycache__/
+*.pyc
+tests/__pycache__/
+
+# Eval runs
+eval_results/2026-*.json
+!eval_results/2026-09-21_00-03-34.json
+
+# Local secrets for the HUD dev page (gateway token)
+.env.local
+voice-samples/
+
+# Personal workspace files (live in ~/friday, never published)
+/MEMORY.md
+/USER.md
+/SOUL.md
+/IDENTITY.md
+/BOOT.md
+/TOOLS.md
+/HEARTBEAT.md
+/baseline_snapshot/
+/eval_results/
+/eval_tasks.jsonl
+/eval_runner.py
+# Large 3D asset with unknown licence
+friday-hud/public/models/
+
+# Installer templates are generic and must be published
+!/templates/friday-workspace/IDENTITY.md
+!/templates/friday-workspace/USER.md

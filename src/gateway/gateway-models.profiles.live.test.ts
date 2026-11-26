@@ -4,8 +4,8 @@ import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-import type { Api, Model } from "@mariozechner/pi-ai";
-import { discoverAuthStorage, discoverModels } from "@mariozechner/pi-coding-agent";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import { discoverAuthStorage, discoverModels } from "@earendil-works/pi-coding-agent";
 import { describe, it } from "vitest";
 import { resolveFRIDAYAgentDir } from "../agents/agent-paths.js";
 import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";

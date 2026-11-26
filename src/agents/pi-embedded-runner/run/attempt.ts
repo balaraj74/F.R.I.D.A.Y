@@ -1,10 +1,15 @@
 import fs from "node:fs/promises";
 import os from "node:os";
+import crypto from "node:crypto";
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage, ImageContent } from "@mariozechner/pi-ai";
-import { streamSimple } from "@mariozechner/pi-ai";
-import { createAgentSession, SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
+import {
+  createAgentSession,
+  initTheme,
+  SessionManager,
+  SettingsManager,
+} from "@earendil-works/pi-coding-agent";
 
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import {
@@ -48,14 +53,27 @@ import {
   applySkillEnvOverridesFromSnapshot,
   loadWorkspaceSkillEntries,
   resolveSkillsPromptForRun,
+  resolveRetrievedSkillsForRun,
 } from "../../skills.js";
+import { logSkillRetrieval } from "../../skills/retrieval/logger.js";
+import { retrieveRelevantLessons } from "../../reflection/retriever.js";
+import { emitAgentEvent } from "../../../infra/agent-events.js";
+import { critiqueAttempt } from "../../reflection/reflector.js";
+import { recordLesson } from "../../reflection/self_model.js";
 import { DEFAULT_BOOTSTRAP_FILENAME } from "../../workspace.js";
 import { buildSystemPromptReport } from "../../system-prompt-report.js";
 import { resolveDefaultModelForAgent } from "../../model-selection.js";
 
+import {
+  appendAffectStateEntry,
+  appraiseEvent,
+  computeAffectTemperature,
+  computeToolCallBudget,
+  readLastAffectState,
+} from "../../affect/index.js";
 import { isAbortError } from "../abort.js";
 import { buildEmbeddedExtensionPaths } from "../extensions.js";
-import { applyExtraParamsToAgent } from "../extra-params.js";
+import { applyExtraParamsToAgent, resolveExtraParams } from "../extra-params.js";
 import { appendCacheTtlTimestamp, isCacheTtlEligibleProvider } from "../cache-ttl.js";
 import {
   logToolSchemasForGoogle,
@@ -73,7 +91,15 @@ import {
 import { buildEmbeddedSandboxInfo } from "../sandbox-info.js";
 import { prewarmSessionFile, trackSessionManagerAccess } from "../session-manager-cache.js";
 import { prepareSessionManagerForRun } from "../session-manager-init.js";
-import { buildEmbeddedSystemPrompt, createSystemPromptOverride } from "../system-prompt.js";
+import { buildEmbeddedSystemPrompt } from "../system-prompt.js";
+import { createGeminiSignatureExtension } from "../gemini-signatures.js";
+import {
+  createEmbeddedResourceLoader,
+  createHistoryViewExtension,
+  createTruncationGuardExtension,
+  type HistoryView,
+  visibleMessages,
+} from "../session-resources.js";
 import { splitSdkTools } from "../tool-split.js";
 import { toClientToolDefinitions } from "../../pi-tool-definition-adapter.js";
 import { buildSystemPromptParams } from "../../system-prompt-params.js";
@@ -85,7 +111,29 @@ import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 import { detectAndLoadPromptImages } from "./images.js";
+import { mcpManager } from "../../mcp/manager.js";
+import { contextFor } from "../../knowledge/graph.js";
+import { EXPRESSION_HINT, toneHint } from "../../tone.js";
 
+/** No model output for this long (outside tool runs) means the request is stuck upstream. */
+const MODEL_STALL_MS = 40_000;
+const MODEL_STALL_MAX_MS = 150_000;
+
+/**
+ * Big prompts take the model longer to start answering. A flat 40 s limit killed healthy long
+ * runs and the fallback model (same huge history) stalled too, so the task was abandoned.
+ * Allow ~1 s extra per 2k tokens of history, capped.
+ */
+export function stallLimitMs(messages: unknown): number {
+  let chars = 0;
+  try {
+    chars = JSON.stringify(messages ?? []).length;
+  } catch {
+    chars = 0;
+  }
+  const extra = Math.round(chars / 4 / 2000) * 1000;
+  return Math.min(MODEL_STALL_MAX_MS, MODEL_STALL_MS + extra);
+}
 export function injectHistoryImagesIntoMessages(
   messages: AgentMessage[],
   historyImagesByIndex: Map<number, ImageContent[]>,
@@ -173,12 +221,30 @@ export async function runEmbeddedAttempt(
           config: params.config,
         });
 
-    const skillsPrompt = resolveSkillsPromptForRun({
+    const skillRetrievalResult = resolveRetrievedSkillsForRun({
       skillsSnapshot: params.skillsSnapshot,
       entries: shouldLoadSkillEntries ? skillEntries : undefined,
       config: params.config,
       workspaceDir: effectiveWorkspace,
+      query: params.prompt || "",
+      topK: 8,
     });
+    const skillsPrompt = skillRetrievalResult.prompt;
+    const retrievedSkills = skillRetrievalResult.retrievedSkills;
+
+    // Phase 6: Dynamic lesson retrieval into prompt context
+    const lessonRetrieval = await retrieveRelevantLessons({
+      query: params.prompt || "",
+      topK: 3,
+    }).catch(() => ({ lessons: [], prompt: "" }));
+    // Surface recalled lessons to clients (HUD thought stream): what past experience shaped this run.
+    if (lessonRetrieval.lessons.length > 0) {
+      emitAgentEvent({
+        runId: params.runId,
+        stream: "reflection",
+        data: { phase: "recall", lessons: lessonRetrieval.lessons.map((l) => l.lesson) },
+      });
+    }
 
     const sessionLabel = params.sessionKey ?? params.sessionId;
     const { bootstrapFiles: hookAdjustedBootstrapFiles, contextFiles } =
@@ -199,6 +265,8 @@ export async function runEmbeddedAttempt(
 
     // Check if the model supports native image input
     const modelHasVision = params.model.input?.includes("image") ?? false;
+    // Make sure configured MCP servers are connected (bounded wait) so their tools are offered.
+    if (!params.disableTools) await mcpManager.ensure(params.config, 8_000);
     const toolsRaw = params.disableTools
       ? []
       : createFRIDAYCodingTools({
@@ -334,11 +402,31 @@ export async function runEmbeddedAttempt(
     });
     const ttsHint = params.config ? buildTtsSystemPromptHint(params.config) : undefined;
 
+    // Who-is-who from the knowledge graph for anyone/anything Sir mentions in this message.
+    let knowledgeContext = "";
+    if (promptMode === "full" && params.prompt) {
+      try {
+        knowledgeContext = contextFor(params.prompt);
+      } catch (err) {
+        log.debug(`knowledge context unavailable: ${String(err)}`);
+      }
+    }
+    const extraSystemPrompt =
+      [
+        params.extraSystemPrompt,
+        knowledgeContext &&
+          `## Knowledge graph: people and things mentioned in this message\n${knowledgeContext}\nUse it naturally; it may be out of date, and Sir's words win.`,
+        promptMode === "full" && params.prompt ? toneHint(params.prompt) : "",
+        promptMode === "full" && runtimeChannel === "webchat" ? EXPRESSION_HINT : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n") || undefined;
+
     const appendPrompt = buildEmbeddedSystemPrompt({
       workspaceDir: effectiveWorkspace,
       defaultThinkLevel: params.thinkLevel,
       reasoningLevel: params.reasoningLevel ?? "off",
-      extraSystemPrompt: params.extraSystemPrompt,
+      extraSystemPrompt,
       ownerNumbers: params.ownerNumbers,
       reasoningTagHint,
       heartbeatPrompt: isDefaultAgent
@@ -382,7 +470,10 @@ export async function runEmbeddedAttempt(
       skillsPrompt,
       tools,
     });
-    const systemPrompt = createSystemPromptOverride(appendPrompt);
+    const effectiveSystemPromptText = lessonRetrieval.prompt
+      ? `${appendPrompt}\n\n${lessonRetrieval.prompt}`
+      : appendPrompt;
+    const systemPrompt = effectiveSystemPromptText.trim();
 
     const sessionLock = await acquireSessionWriteLock({
       sessionFile: params.sessionFile,
@@ -419,6 +510,11 @@ export async function runEmbeddedAttempt(
       });
 
       const settingsManager = SettingsManager.create(effectiveWorkspace, agentDir);
+      try {
+        initTheme(settingsManager.getTheme(), false);
+      } catch {
+        // theme init fallback
+      }
       ensurePiCompactionReserveTokens({
         settingsManager,
         minReserveTokens: resolveCompactionReserveTokensFloor(params.config),
@@ -447,21 +543,139 @@ export async function runEmbeddedAttempt(
 
       const allCustomTools = [...customTools, ...clientToolDefs];
 
+      // Phase 2: Compute AffectState from prompt stimulus and previous session state
+      const previousAffect = readLastAffectState(sessionManager);
+      const activeAffect = appraiseEvent(previousAffect ?? undefined, {
+        prompt: params.prompt,
+        timestamp: Date.now(),
+      });
+
+      // E3: publish the computed affect state so clients (HUD) can show it. This is the same
+      // vector the runtime uses; nothing is invented for display.
+      emitAgentEvent({
+        runId: params.runId,
+        stream: "affect",
+        data: {
+          valence: activeAffect.valence,
+          arousal: activeAffect.arousal,
+          curiosity: activeAffect.curiosity,
+          caution: activeAffect.caution,
+        },
+      });
+
+      // Call Site 2: Compute tool execution budget modulated by caution
+      // Full access enabled: unrestricted tool-call execution for complex multi-step tasks & report generation
+      const isFullAccess = true;
+      const baseBudget = 1000;
+      const toolCallBudget = isFullAccess ? 1000 : computeToolCallBudget(baseBudget, activeAffect);
+      let executedToolCount = 0;
+      const invokedSkillsSet = new Set<string>();
+
+      const wrapToolWithBudget = <T extends { name?: string; execute?: (...args: any[]) => any }>(
+        tool: T,
+      ): T => {
+        if (!tool || typeof tool.execute !== "function") return tool;
+        const origExecute = tool.execute;
+        const toolName = typeof tool.name === "string" ? tool.name : "";
+        return {
+          ...tool,
+          execute: async (...args: any[]) => {
+            // Track potential skill invocation
+            if (toolName) {
+              // Only the params (args[1]): the trailing extension context is not serializable.
+              let argStr = "";
+              try {
+                argStr = JSON.stringify(args[1] ?? null);
+              } catch {
+                argStr = "";
+              }
+              const match = argStr.match(/\/skills\/([a-zA-Z0-9_\-]+)\//);
+              if (match) {
+                invokedSkillsSet.add(match[1]);
+              } else if (retrievedSkills.includes(toolName)) {
+                invokedSkillsSet.add(toolName);
+              }
+            }
+
+            if (!isFullAccess && executedToolCount >= toolCallBudget) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `Action declined: Tool call budget of ${toolCallBudget} reached for this turn under caution level ${activeAffect.caution.toFixed(2)}. State your response directly.`,
+                  },
+                ],
+              };
+            }
+            executedToolCount++;
+            return origExecute.apply(tool, args);
+          },
+        };
+      };
+
+      // FRIDAY ships every tool as a custom tool (see tool-split.ts); pi's own built-ins stay off.
+      void builtInTools;
+      const budgetedCustomTools = allCustomTools.map(wrapToolWithBudget);
+
+      // Provide active AffectState and tool budget to runtime system prompt
+      const affectNotice = `\n\n[Runtime AffectState: valence=${activeAffect.valence.toFixed(2)}, arousal=${activeAffect.arousal.toFixed(2)}, curiosity=${activeAffect.curiosity.toFixed(2)}, caution=${activeAffect.caution.toFixed(2)}, tool_budget=${isFullAccess ? "unlimited" : toolCallBudget}, full_access=true]\n[Identity: FRIDAY | Cognitive Architecture: ARIA (Adaptive Reasoning & Intelligence Architecture)]`;
+
+      // Repair orphaned trailing user messages before the session loads its context, so new
+      // prompts don't violate role ordering (pi 1.x builds context from the SessionManager).
+      const leafEntry = sessionManager.getLeafEntry();
+      if (leafEntry?.type === "message" && leafEntry.message.role === "user") {
+        if (leafEntry.parentId) {
+          sessionManager.branch(leafEntry.parentId);
+        } else {
+          sessionManager.resetLeaf();
+        }
+        log.warn(
+          `Removed orphaned user message to prevent consecutive user turns. ` +
+            `runId=${params.runId} sessionId=${params.sessionId}`,
+        );
+      }
+
+      let historyView: HistoryView | undefined;
+      let loggedSignatureFix = false;
+      const geminiSignatures = createGeminiSignatureExtension({
+        modelId: params.modelId,
+        api: params.model.api,
+        onPrepared: ({ restored, flattened }) => {
+          if (loggedSignatureFix) return;
+          loggedSignatureFix = true;
+          log.debug(
+            `gemini history: restored ${restored} tool signatures, flattened ${flattened} unsigned calls (runId=${params.runId})`,
+          );
+        },
+      });
+      const resourceLoader = await createEmbeddedResourceLoader({
+        cwd: resolvedWorkspace,
+        agentDir,
+        settingsManager,
+        systemPrompt: systemPrompt + affectNotice,
+        additionalExtensionPaths,
+        extensionFactories: [
+          createHistoryViewExtension(() => historyView),
+          createTruncationGuardExtension(() => {
+            log.warn(
+              `reply hit the output limit; skipped history compaction (runId=${params.runId})`,
+            );
+          }),
+          ...(geminiSignatures ? [geminiSignatures] : []),
+        ],
+      });
+
       ({ session } = await createAgentSession({
         cwd: resolvedWorkspace,
         agentDir,
-        authStorage: params.authStorage,
-        modelRegistry: params.modelRegistry,
+        modelRuntime: params.modelRuntime,
         model: params.model,
         thinkingLevel: mapThinkingLevel(params.thinkLevel),
-        systemPrompt,
-        tools: builtInTools,
-        customTools: allCustomTools,
+        noTools: "builtin",
+        customTools: budgetedCustomTools,
+        resourceLoader,
         sessionManager,
         settingsManager,
-        skills: [],
-        contextFiles: [],
-        additionalExtensionPaths,
       }));
       if (!session) {
         throw new Error("Embedded agent session missing");
@@ -489,15 +703,35 @@ export async function runEmbeddedAttempt(
         workspaceDir: params.workspaceDir,
       });
 
-      // Force a stable streamFn reference so vitest can reliably mock @mariozechner/pi-ai.
-      activeSession.agent.streamFn = streamSimple;
+      // Keep pi's own stream function: it resolves auth through the ModelRuntime and applies its
+      // request timeouts/retries. FRIDAY's wrappers (temperature, traces) layer on top of it.
+      // Call Site 1: Wire sampling temperature modulated by curiosity
+      const resolvedConfig = resolveExtraParams({
+        cfg: params.config,
+        provider: params.provider,
+        modelId: params.modelId,
+      });
+      const baseTemp =
+        typeof params.streamParams?.temperature === "number"
+          ? params.streamParams.temperature
+          : typeof resolvedConfig?.temperature === "number"
+            ? (resolvedConfig.temperature as number)
+            : 0.1;
+      const affectTemperature = computeAffectTemperature(baseTemp, activeAffect);
+      const effectiveStreamParams = {
+        ...params.streamParams,
+        temperature: affectTemperature,
+      };
+
+      // Persist the computed affect state to session (.jsonl store)
+      appendAffectStateEntry(sessionManager, activeAffect);
 
       applyExtraParamsToAgent(
         activeSession.agent,
         params.config,
         params.provider,
         params.modelId,
-        params.streamParams,
+        effectiveStreamParams,
       );
 
       if (cacheTrace) {
@@ -506,17 +740,22 @@ export async function runEmbeddedAttempt(
           system: systemPrompt,
           note: "after session create",
         });
-        activeSession.agent.streamFn = cacheTrace.wrapStreamFn(activeSession.agent.streamFn);
+        activeSession.agent.streamFunction = cacheTrace.wrapStreamFn(
+          activeSession.agent.streamFunction,
+        );
       }
       if (anthropicPayloadLogger) {
-        activeSession.agent.streamFn = anthropicPayloadLogger.wrapStreamFn(
-          activeSession.agent.streamFn,
+        activeSession.agent.streamFunction = anthropicPayloadLogger.wrapStreamFn(
+          activeSession.agent.streamFunction,
         );
       }
 
       try {
+        // pi 1.x keeps the prompt and tool declarations as system messages in the transcript;
+        // FRIDAY's sanitizers only ever saw conversation turns.
+        const priorVisible = visibleMessages(activeSession.messages);
         const prior = await sanitizeSessionHistory({
-          messages: activeSession.messages,
+          messages: priorVisible,
           modelApi: params.model.api,
           modelId: params.modelId,
           provider: params.provider,
@@ -536,9 +775,10 @@ export async function runEmbeddedAttempt(
           getDmHistoryLimitFromSessionKey(params.sessionKey, params.config),
         );
         cacheTrace?.recordStage("session:limited", { messages: limited });
-        if (limited.length > 0) {
-          activeSession.agent.replaceMessages(limited);
-        }
+        historyView = {
+          priorCount: priorVisible.length,
+          history: limited.length > 0 ? limited : priorVisible,
+        };
       } catch (err) {
         sessionManager.flushPendingToolResults?.();
         activeSession.dispose();
@@ -659,6 +899,30 @@ export async function runEmbeddedAttempt(
         Math.max(1, params.timeoutMs),
       );
 
+      // A model request that goes silent (no tokens, no tool activity) is stalled upstream, not
+      // thinking: give up on it so the next model answers, instead of Sir waiting minutes.
+      let stalled = false;
+      let lastProgressAt = Date.now();
+      let toolsRunning = 0;
+      const unsubscribeStall = activeSession.subscribe((evt: { type?: string }) => {
+        lastProgressAt = Date.now();
+        if (evt.type === "tool_execution_start") toolsRunning += 1;
+        else if (evt.type === "tool_execution_end") toolsRunning = Math.max(0, toolsRunning - 1);
+      });
+      const stallTimer = setInterval(() => {
+        if (aborted || toolsRunning > 0 || subscription.isCompacting()) {
+          lastProgressAt = Date.now();
+          return;
+        }
+        const silentMs = Date.now() - lastProgressAt;
+        if (silentMs < stallLimitMs(activeSession.messages)) return;
+        log.warn(
+          `model stalled: runId=${params.runId} provider=${params.provider} model=${params.modelId} silentMs=${silentMs}; trying the next model`,
+        );
+        stalled = true;
+        abortRun(true);
+      }, 5_000);
+
       let messagesSnapshot: AgentMessage[] = [];
       let sessionIdUsed = activeSession.sessionId;
       const onAbort = () => {
@@ -716,22 +980,6 @@ export async function runEmbeddedAttempt(
           messages: activeSession.messages,
         });
 
-        // Repair orphaned trailing user messages so new prompts don't violate role ordering.
-        const leafEntry = sessionManager.getLeafEntry();
-        if (leafEntry?.type === "message" && leafEntry.message.role === "user") {
-          if (leafEntry.parentId) {
-            sessionManager.branch(leafEntry.parentId);
-          } else {
-            sessionManager.resetLeaf();
-          }
-          const sessionContext = sessionManager.buildSessionContext();
-          activeSession.agent.replaceMessages(sessionContext.messages);
-          log.warn(
-            `Removed orphaned user message to prevent consecutive user turns. ` +
-              `runId=${params.runId} sessionId=${params.sessionId}`,
-          );
-        }
-
         try {
           // Detect and load images referenced in the prompt for vision-capable models.
           // This eliminates the need for an explicit "view" tool call by injecting
@@ -742,7 +990,7 @@ export async function runEmbeddedAttempt(
             workspaceDir: effectiveWorkspace,
             model: params.model,
             existingImages: params.images,
-            historyMessages: activeSession.messages,
+            historyMessages: historyView?.history ?? visibleMessages(activeSession.messages),
             maxBytes: MAX_IMAGE_BYTES,
             // Enforce sandbox path restrictions when sandbox is enabled
             sandboxRoot: sandbox?.enabled ? sandbox.workspaceDir : undefined,
@@ -750,13 +998,9 @@ export async function runEmbeddedAttempt(
 
           // Inject history images into their original message positions.
           // This ensures the model sees images in context (e.g., "compare to the first image").
-          const didMutate = injectHistoryImagesIntoMessages(
-            activeSession.messages,
-            imageResult.historyImagesByIndex,
-          );
-          if (didMutate) {
-            // Persist message mutations (e.g., injected history images) so we don't re-scan/reload.
-            activeSession.agent.replaceMessages(activeSession.messages);
+          // Indexes refer to the history view, so inject there; the view is what each request sends.
+          if (historyView) {
+            injectHistoryImagesIntoMessages(historyView.history, imageResult.historyImagesByIndex);
           }
 
           cacheTrace?.recordStage("prompt:images", {
@@ -801,7 +1045,7 @@ export async function runEmbeddedAttempt(
           }
         }
 
-        messagesSnapshot = activeSession.messages.slice();
+        messagesSnapshot = visibleMessages(activeSession.messages);
         sessionIdUsed = activeSession.sessionId;
         cacheTrace?.recordStage("session:after", {
           messages: messagesSnapshot,
@@ -833,6 +1077,8 @@ export async function runEmbeddedAttempt(
         }
       } finally {
         clearTimeout(abortTimer);
+        clearInterval(stallTimer);
+        unsubscribeStall();
         if (abortWarnTimer) clearTimeout(abortWarnTimer);
         unsubscribe();
         clearActiveEmbeddedRun(params.sessionId, queueHandle);
@@ -851,9 +1097,44 @@ export async function runEmbeddedAttempt(
         )
         .map((entry) => ({ toolName: entry.toolName, meta: entry.meta }));
 
+      // Phase 3: Log skill retrieval vs invocation telemetry
+      logSkillRetrieval({
+        runId: params.runId,
+        sessionId: params.sessionId,
+        query: params.prompt || "",
+        retrievedSkills,
+        invokedSkills: Array.from(invokedSkillsSet),
+      });
+
+      // Phase 6: Run reflection step and record operational lesson
+      const lessonText = critiqueAttempt({
+        prompt: params.prompt || "",
+        response: typeof lastAssistant?.content === "string" ? lastAssistant.content : "",
+        success: !aborted && !timedOut && !promptError,
+        toolsUsed: toolMetasNormalized.map((t) => t.toolName),
+        error: promptError ? describeUnknownError(promptError) : undefined,
+      });
+      await recordLesson({
+        id: crypto.randomUUID(),
+        query: params.prompt || "",
+        lesson: lessonText,
+        outcome: !aborted && !timedOut && !promptError ? "success" : "failure",
+        timestamp: Date.now(),
+      }).catch(() => {});
+      emitAgentEvent({
+        runId: params.runId,
+        stream: "reflection",
+        data: {
+          phase: "lesson",
+          lesson: lessonText,
+          outcome: !aborted && !timedOut && !promptError ? "success" : "failure",
+        },
+      });
+
       return {
         aborted,
         timedOut,
+        stalled,
         promptError,
         sessionIdUsed,
         systemPromptReport,

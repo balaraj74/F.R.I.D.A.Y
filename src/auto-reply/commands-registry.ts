@@ -74,7 +74,8 @@ function buildSkillCommandDefinitions(skillCommands?: SkillCommandSpec[]): ChatC
     key: `skill:${spec.skillName}`,
     nativeName: spec.name,
     description: spec.description,
-    textAliases: [`/${spec.name}`],
+    textAliases:
+      spec.skillName !== spec.name ? [`/${spec.name}`, `/${spec.skillName}`] : [`/${spec.name}`],
     acceptsArgs: true,
     argsParsing: "none",
     scope: "both",

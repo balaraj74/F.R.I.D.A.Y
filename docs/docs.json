@@ -888,6 +888,8 @@
           "cli/tui",
           "cli/voicecall",
           "cli/cron",
+          "cli/jobs",
+          "cli/design",
           "cli/dns",
           "cli/docs",
           "cli/hooks",
@@ -928,6 +930,7 @@
           "concepts/model-providers",
           "concepts/models",
           "concepts/model-failover",
+          "concepts/job-engine",
           "concepts/usage-tracking",
           "concepts/timezone",
           "concepts/typebox"

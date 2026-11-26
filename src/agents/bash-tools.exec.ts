@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 
+import { classifyExecRisk } from "../infra/autonomy-policy.js";
+import { checkTrust, commandKinds, isAutonomousRun } from "../infra/autonomy-trust.js";
 import {
   type ExecAsk,
   type ExecHost,
@@ -845,12 +847,36 @@ export function createExecTool(
       const configuredAsk = defaults?.ask ?? "on-miss";
       const requestedAsk = normalizeExecAsk(params.ask);
       let ask = maxAsk(configuredAsk, requestedAsk ?? configuredAsk);
-      const bypassApprovals = elevatedRequested && elevatedMode === "full";
+      // Autonomy policy (A3): hard-never commands always need Sir's approval, even when
+      // security is "full", asks are off, or elevated mode would bypass approvals.
+      let policyRisk = classifyExecRisk(params.command);
+      // Earned trust: when FRIDAY acts on her own (heartbeat/cron), command kinds without a
+      // clean track record go to Sir for approval too.
+      if (
+        !policyRisk.requiresApproval &&
+        isAutonomousRun({
+          messageProvider: defaults?.messageProvider,
+          sessionKey: defaults?.sessionKey,
+        })
+      ) {
+        const trust = checkTrust(commandKinds(params.command));
+        if (!trust.allowed) {
+          policyRisk = { requiresApproval: true, category: "unearned-trust", reason: trust.reason };
+        }
+      }
+      const bypassApprovals =
+        elevatedRequested && elevatedMode === "full" && !policyRisk.requiresApproval;
       if (bypassApprovals) {
         ask = "off";
       }
 
       const sandbox = host === "sandbox" ? defaults?.sandbox : undefined;
+      // Without a real sandbox, "sandbox" exec runs directly on this machine and skips the
+      // approval checks entirely. Hard-never commands must go through the gateway approval path.
+      if (host === "sandbox" && !sandbox && policyRisk.requiresApproval) {
+        host = "gateway";
+        if (security === "deny") security = "full"; // ask Sir rather than silently refusing
+      }
       const rawWorkdir = params.workdir?.trim() || defaults?.cwd || process.cwd();
       let workdir = rawWorkdir;
       let containerWorkdir = sandbox?.containerWorkdir;
@@ -971,12 +997,14 @@ export function createExecTool(
             // Fall back to requiring approval if node approvals cannot be fetched.
           }
         }
-        const requiresAsk = requiresExecApproval({
-          ask: hostAsk,
-          security: hostSecurity,
-          analysisOk,
-          allowlistSatisfied,
-        });
+        const requiresAsk =
+          policyRisk.requiresApproval ||
+          requiresExecApproval({
+            ask: hostAsk,
+            security: hostSecurity,
+            analysisOk,
+            allowlistSatisfied,
+          });
         const commandText = params.command;
         const invokeTimeoutMs = Math.max(
           10_000,
@@ -1051,7 +1079,9 @@ export function createExecTool(
             if (decision === "deny") {
               deniedReason = "user-denied";
             } else if (!decision) {
-              if (askFallback === "full") {
+              if (policyRisk.requiresApproval) {
+                deniedReason = `approval-timeout (policy: ${policyRisk.reason})`;
+              } else if (askFallback === "full") {
                 approvedByAsk = true;
                 approvalDecision = "allow-once";
               } else if (askFallback === "allowlist") {
@@ -1064,7 +1094,8 @@ export function createExecTool(
               approvalDecision = "allow-once";
             } else if (decision === "allow-always") {
               approvedByAsk = true;
-              approvalDecision = "allow-always";
+              // Policy hits are approved one at a time; never remembered.
+              approvalDecision = policyRisk.requiresApproval ? "allow-once" : "allow-always";
             }
 
             if (deniedReason) {
@@ -1175,12 +1206,14 @@ export function createExecTool(
         const analysisOk = allowlistEval.analysisOk;
         const allowlistSatisfied =
           hostSecurity === "allowlist" && analysisOk ? allowlistEval.allowlistSatisfied : false;
-        const requiresAsk = requiresExecApproval({
-          ask: hostAsk,
-          security: hostSecurity,
-          analysisOk,
-          allowlistSatisfied,
-        });
+        const requiresAsk =
+          policyRisk.requiresApproval ||
+          requiresExecApproval({
+            ask: hostAsk,
+            security: hostSecurity,
+            analysisOk,
+            allowlistSatisfied,
+          });
 
         if (requiresAsk) {
           const approvalId = crypto.randomUUID();
@@ -1231,7 +1264,9 @@ export function createExecTool(
             if (decision === "deny") {
               deniedReason = "user-denied";
             } else if (!decision) {
-              if (askFallback === "full") {
+              if (policyRisk.requiresApproval) {
+                deniedReason = `approval-timeout (policy: ${policyRisk.reason})`;
+              } else if (askFallback === "full") {
                 approvedByAsk = true;
               } else if (askFallback === "allowlist") {
                 if (!analysisOk || !allowlistSatisfied) {
@@ -1246,7 +1281,8 @@ export function createExecTool(
               approvedByAsk = true;
             } else if (decision === "allow-always") {
               approvedByAsk = true;
-              if (hostSecurity === "allowlist") {
+              // Policy hits are approved one at a time; never added to the allowlist.
+              if (hostSecurity === "allowlist" && !policyRisk.requiresApproval) {
                 for (const segment of allowlistEval.segments) {
                   const pattern = segment.resolution?.resolvedPath ?? "";
                   if (pattern) {

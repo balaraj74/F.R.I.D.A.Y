@@ -1,4 +1,21 @@
 #!/bin/sh
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 [ -z "$ROOT" ] && exit 0
+
+# Protect eval_tasks.jsonl from automated or casual agent edits (Phase 1 Rule 5)
+if git diff --cached --name-only | grep -q "^eval_tasks\.jsonl$"; then
+  if [ "$ALLOW_EVAL_TASKS_EDIT" != "1" ]; then
+    echo ""
+    echo "=================================================================="
+    echo "  [SECURITY GATE] Direct modification of eval_tasks.jsonl is blocked."
+    echo "  Phase 1 Rule 5: Changes to eval_tasks.jsonl require an explicit,"
+    echo "  separate human instruction and its own commit."
+    echo "  To intentionally commit changes as human, run:"
+    echo "    ALLOW_EVAL_TASKS_EDIT=1 git commit ..."
+    echo "=================================================================="
+    echo ""
+    exit 1
+  fi
+fi
+
 node "$ROOT/scripts/format-staged.js"

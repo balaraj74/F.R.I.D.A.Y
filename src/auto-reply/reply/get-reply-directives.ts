@@ -350,6 +350,7 @@ export async function resolveReplyDirectives(params: {
   const resolvedReasoningLevel: ReasoningLevel =
     (directives.reasoningLevel as ReasoningLevel | undefined) ??
     (sessionEntry?.reasoningLevel as ReasoningLevel | undefined) ??
+    opts?.defaultReasoningLevel ??
     "off";
   const resolvedElevatedLevel = elevatedAllowed
     ? ((directives.elevatedLevel as ElevatedLevel | undefined) ??

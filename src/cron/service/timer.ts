@@ -1,4 +1,5 @@
 import type { HeartbeatRunResult } from "../../infra/heartbeat-wake.js";
+import { isAutonomyPaused } from "../../infra/autonomy-state.js";
 import type { CronJob } from "../types.js";
 import { computeJobNextRunAtMs, nextWakeAtMs, resolveJobPayloadTextForMain } from "./jobs.js";
 import { locked } from "./locked.js";
@@ -135,6 +136,12 @@ export async function executeJob(
       }
     }
   };
+
+  // Kill switch: scheduled jobs don't run while autonomy is paused (manual `cron run` still works).
+  if (!opts.forced && isAutonomyPaused()) {
+    await finish("skipped", undefined, "autonomy paused");
+    return;
+  }
 
   try {
     if (job.sessionTarget === "main") {

@@ -27,6 +27,26 @@ const NodeHostSchema = z
   .strict()
   .optional();
 
+const McpServerSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    command: z.string().min(1).optional(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    cwd: z.string().optional(),
+    url: z.string().url().optional(),
+    transport: z.union([z.literal("http"), z.literal("sse")]).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    allow: z.array(z.string()).optional(),
+    deny: z.array(z.string()).optional(),
+    readOnly: z.array(z.string()).optional(),
+    timeoutMs: z.number().int().positive().optional(),
+  })
+  .strict()
+  .refine((s) => Boolean(s.command) !== Boolean(s.url), {
+    message: "set exactly one of command (local) or url (remote)",
+  });
+
 export const FRIDAYSchema = z
   .object({
     meta: z
@@ -476,6 +496,17 @@ export const FRIDAYSchema = z
                 config: z.record(z.string(), z.unknown()).optional(),
               })
               .strict(),
+          )
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    mcp: z
+      .object({
+        servers: z
+          .record(
+            z.string().regex(/^[a-zA-Z0-9_-]{1,32}$/, "server names: letters, digits, _ or -"),
+            McpServerSchema,
           )
           .optional(),
       })

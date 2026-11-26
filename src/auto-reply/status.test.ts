@@ -436,7 +436,7 @@ describe("buildCommandsMessage", () => {
         },
       ],
     );
-    expect(text).toContain("/demo_skill - Demo skill");
+    expect(text).toContain("/demo_skill (/demo-skill) - Demo skill");
   });
 });
 

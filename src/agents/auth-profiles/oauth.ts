@@ -1,4 +1,5 @@
-import { getOAuthApiKey, type OAuthCredentials, type OAuthProvider } from "@mariozechner/pi-ai";
+import type { OAuthCredentials } from "@earendil-works/pi-ai";
+import { getOAuthApiKey, type OAuthProvider } from "../pi-oauth.js";
 import lockfile from "proper-lockfile";
 
 import type { FRIDAYConfig } from "../../config/config.js";

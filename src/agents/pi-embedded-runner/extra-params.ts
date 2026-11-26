@@ -1,6 +1,6 @@
-import type { StreamFn } from "@mariozechner/pi-agent-core";
-import type { Api, Model, SimpleStreamOptions } from "@mariozechner/pi-ai";
-import { streamSimple } from "@mariozechner/pi-ai";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
 
 import type { FRIDAYConfig } from "../../config/config.js";
 import { log } from "./logger.js";
@@ -79,7 +79,7 @@ function createStreamFnWithExtraParams(
  * @internal Exported for testing
  */
 export function applyExtraParamsToAgent(
-  agent: { streamFn?: StreamFn },
+  agent: { streamFunction?: StreamFn },
   cfg: FRIDAYConfig | undefined,
   provider: string,
   modelId: string,
@@ -97,10 +97,15 @@ export function applyExtraParamsToAgent(
         )
       : undefined;
   const merged = Object.assign({}, extraParams, override);
-  const wrappedStreamFn = createStreamFnWithExtraParams(agent.streamFn, merged, provider, modelId);
+  const wrappedStreamFn = createStreamFnWithExtraParams(
+    agent.streamFunction,
+    merged,
+    provider,
+    modelId,
+  );
 
   if (wrappedStreamFn) {
     log.debug(`applying extraParams to agent streamFn for ${provider}/${modelId}`);
-    agent.streamFn = wrappedStreamFn;
+    agent.streamFunction = wrappedStreamFn;
   }
 }

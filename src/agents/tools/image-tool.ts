@@ -7,8 +7,7 @@ import {
   type Context,
   complete,
   type Model,
-} from "@mariozechner/pi-ai";
-import { discoverAuthStorage, discoverModels } from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-ai/compat";
 import { Type } from "@sinclair/typebox";
 
 import type { FRIDAYConfig } from "../../config/config.js";
@@ -21,6 +20,7 @@ import { getApiKeyForModel, requireApiKey, resolveEnvApiKey } from "../model-aut
 import { runWithImageModelFallback } from "../model-fallback.js";
 import { resolveConfiguredModelRef } from "../model-selection.js";
 import { ensureFRIDAYModelsJson } from "../models-config.js";
+import { createPiModelRuntime } from "../pi-model-runtime.js";
 import { assertSandboxPath } from "../sandbox-paths.js";
 import type { AnyAgentTool } from "./common.js";
 import {
@@ -159,6 +159,8 @@ function pickMaxBytes(cfg?: FRIDAYConfig, maxBytesMb?: number): number | undefin
   return undefined;
 }
 
+const IMAGE_TIMEOUT_MS = 45_000;
+
 function buildImageContext(prompt: string, base64: string, mimeType: string): Context {
   return {
     messages: [
@@ -233,14 +235,13 @@ async function runImagePrompt(params: {
     : undefined;
 
   await ensureFRIDAYModelsJson(effectiveCfg, params.agentDir);
-  const authStorage = discoverAuthStorage(params.agentDir);
-  const modelRegistry = discoverModels(authStorage, params.agentDir);
+  const { modelRuntime, modelRegistry } = await createPiModelRuntime(params.agentDir);
 
   const result = await runWithImageModelFallback({
     cfg: effectiveCfg,
     modelOverride: params.modelOverride,
     run: async (provider, modelId) => {
-      const model = modelRegistry.find(provider, modelId) as Model<Api> | null;
+      const model = modelRegistry.find(provider, modelId) as Model<Api> | undefined;
       if (!model) {
         throw new Error(`Unknown model: ${provider}/${modelId}`);
       }
@@ -253,7 +254,7 @@ async function runImagePrompt(params: {
         agentDir: params.agentDir,
       });
       const apiKey = requireApiKey(apiKeyInfo, model.provider);
-      authStorage.setRuntimeApiKey(model.provider, apiKey);
+      await modelRuntime.setRuntimeApiKey(model.provider, apiKey);
       const imageDataUrl = `data:${params.mimeType};base64,${params.base64}`;
 
       if (model.provider === "minimax") {
@@ -267,9 +268,11 @@ async function runImagePrompt(params: {
       }
 
       const context = buildImageContext(params.prompt, params.base64, params.mimeType);
+      // A stuck read must fail over to the next image model instead of hanging the turn.
       const message = (await complete(model, context, {
         apiKey,
         maxTokens: 512,
+        signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS),
       })) as AssistantMessage;
       const text = coerceImageAssistantText({
         message,

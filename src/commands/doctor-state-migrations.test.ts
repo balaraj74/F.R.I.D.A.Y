@@ -327,25 +327,6 @@ describe("doctor legacy state migrations", () => {
     expect(store["agent:main:main"]?.sessionId).toBe("legacy");
   });
 
-  it("auto-migrates legacy state dir to ~/.friday", async () => {
-    const root = await makeTempRoot();
-    const legacyDir = path.join(root, ".friday");
-    fs.mkdirSync(legacyDir, { recursive: true });
-    fs.writeFileSync(path.join(legacyDir, "foo.txt"), "legacy", "utf-8");
-
-    const result = await autoMigrateLegacyStateDir({
-      env: {} as NodeJS.ProcessEnv,
-      homedir: () => root,
-    });
-
-    const targetDir = path.join(root, ".friday");
-    expect(fs.existsSync(path.join(targetDir, "foo.txt"))).toBe(true);
-    const legacyStat = fs.lstatSync(legacyDir);
-    expect(legacyStat.isSymbolicLink()).toBe(true);
-    expect(fs.realpathSync(legacyDir)).toBe(fs.realpathSync(targetDir));
-    expect(result.migrated).toBe(true);
-  });
-
   it("skips state dir migration when target exists", async () => {
     const root = await makeTempRoot();
     const legacyDir = path.join(root, ".friday");

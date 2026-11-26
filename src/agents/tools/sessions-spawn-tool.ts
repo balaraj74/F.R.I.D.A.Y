@@ -58,6 +58,8 @@ function normalizeModelSelection(value: unknown): string | undefined {
 }
 
 export function createSessionsSpawnTool(opts?: {
+  /** Spawned from a heartbeat/cron run: the child stays autonomous for earned-trust gates. */
+  autonomous?: boolean;
   agentSessionKey?: string;
   agentChannel?: GatewayMessageChannel;
   agentAccountId?: string;
@@ -157,7 +159,7 @@ export function createSessionsSpawnTool(opts?: {
           });
         }
       }
-      const childSessionKey = `agent:${targetAgentId}:subagent:${crypto.randomUUID()}`;
+      const childSessionKey = `agent:${targetAgentId}:subagent:${opts?.autonomous ? "auto-" : ""}${crypto.randomUUID()}`;
       const spawnedByKey = requesterInternalKey;
       const targetAgentConfig = resolveAgentConfig(cfg, targetAgentId);
       const resolvedModel =

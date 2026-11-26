@@ -1,5 +1,5 @@
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import { createEditTool, createReadTool, createWriteTool } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import { createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-coding-agent";
 
 import { detectMime } from "../media/mime.js";
 import type { AnyAgentTool } from "./pi-tools.types.js";
@@ -99,17 +99,10 @@ type RequiredParamGroup = {
 export const CLAUDE_PARAM_GROUPS = {
   read: [{ keys: ["path", "file_path"], label: "path (path or file_path)" }],
   write: [{ keys: ["path", "file_path"], label: "path (path or file_path)" }],
-  edit: [
-    { keys: ["path", "file_path"], label: "path (path or file_path)" },
-    {
-      keys: ["oldText", "old_string"],
-      label: "oldText (oldText or old_string)",
-    },
-    {
-      keys: ["newText", "new_string"],
-      label: "newText (newText or new_string)",
-    },
-  ],
+  // pi 1.x edit takes `edits: [{ oldText, newText }]`; a single top-level oldText/newText (or
+  // Claude's old_string/new_string) is folded into `edits` by the tool's prepareArguments, which
+  // also reports a missing replacement. Only the path is checked here.
+  edit: [{ keys: ["path", "file_path"], label: "path (path or file_path)" }],
 } as const;
 
 // Normalize tool parameters from Claude Code conventions to pi-coding-agent conventions.
@@ -215,8 +208,15 @@ export function wrapToolParamNormalization(
   requiredParamGroups?: readonly RequiredParamGroup[],
 ): AnyAgentTool {
   const patched = patchToolSchemaForClaudeCompatibility(tool);
+  const basePrepare = tool.prepareArguments;
+  // Aliases first, then the tool's own argument shim (e.g. legacy edit fields -> edits[]).
+  const prepare = (args: unknown) => {
+    const normalized = normalizeToolParams(args) ?? args;
+    return basePrepare ? basePrepare(normalized) : normalized;
+  };
   return {
     ...patched,
+    prepareArguments: basePrepare ? prepare : undefined,
     execute: async (toolCallId, params, signal, onUpdate) => {
       const normalized = normalizeToolParams(params);
       const record =
@@ -225,7 +225,9 @@ export function wrapToolParamNormalization(
       if (requiredParamGroups?.length) {
         assertRequiredParams(record, requiredParamGroups, tool.name);
       }
-      return tool.execute(toolCallId, normalized ?? params, signal, onUpdate);
+      // The agent loop already ran prepareArguments; running it again is idempotent and covers
+      // direct callers (tests, sandbox wrapper).
+      return tool.execute(toolCallId, prepare(params), signal, onUpdate);
     },
   };
 }

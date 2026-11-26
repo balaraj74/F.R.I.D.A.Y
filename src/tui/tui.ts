@@ -4,8 +4,9 @@ import {
   Loader,
   ProcessTerminal,
   Text,
-  TUI,
-} from "@mariozechner/pi-tui";
+  type TUI,
+  TuiMainScreen,
+} from "@earendil-works/pi-tui";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { loadConfig } from "../config/config.js";
 import {
@@ -229,7 +230,7 @@ export async function runTui(opts: TuiOptions) {
     password: opts.password,
   });
 
-  const tui = new TUI(new ProcessTerminal());
+  const tui: TUI = new TuiMainScreen(new ProcessTerminal());
   const header = new Text("", 1, 0);
   const statusContainer = new Container();
   const footer = new Text("", 1, 0);

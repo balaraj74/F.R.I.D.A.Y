@@ -100,7 +100,7 @@ export function resolveSkillCommandInvocation(params: {
     const args = skillMatch[2]?.trim();
     return { command: skillCommand, args: args || undefined };
   }
-  const command = params.skillCommands.find((entry) => entry.name.toLowerCase() === commandName);
+  const command = findSkillCommand(params.skillCommands, commandName);
   if (!command) return null;
   const args = match[2]?.trim();
   return { command, args: args || undefined };

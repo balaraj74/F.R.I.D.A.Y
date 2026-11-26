@@ -325,3 +325,78 @@ describe("embedding provider local fallback", () => {
     ).rejects.toThrow(/optional dependency node-llama-cpp/i);
   });
 });
+
+describe("embedding provider local model", () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.doUnmock("./node-llama.js");
+  });
+
+  // Fake node-llama-cpp: 1 token per character, 16-token model window.
+  const mockLlama = () => {
+    const loadModel = vi.fn(async () => ({
+      trainContextSize: 16,
+      tokenize: (text: string) => Array.from(text, (_c, i) => i),
+      createEmbeddingContext: async () => ({
+        getEmbeddingFor: async (input: string | number[]) => ({
+          vector: [typeof input === "string" ? -1 : input.length],
+        }),
+      }),
+    }));
+    const resolveModelFile = vi.fn(async (p: string) => p);
+    vi.doMock("./node-llama.js", () => ({
+      importNodeLlamaCpp: async () => ({
+        getLlama: async () => ({ loadModel }),
+        resolveModelFile,
+        LlamaLogLevel: { error: 0 },
+      }),
+    }));
+    return { loadModel, resolveModelFile };
+  };
+
+  it("loads the model once even when embedding a batch concurrently", async () => {
+    const { loadModel, resolveModelFile } = mockLlama();
+    const { createEmbeddingProvider } = await import("./embeddings.js");
+    const { provider } = await createEmbeddingProvider({
+      config: {} as never,
+      provider: "local",
+      model: "",
+      fallback: "none",
+      local: { modelPath: "/models/mini.gguf" },
+    });
+    await provider.embedBatch(["a", "b", "c", "d"]);
+    expect(resolveModelFile).toHaveBeenCalledTimes(1);
+    expect(loadModel).toHaveBeenCalledTimes(1);
+  });
+
+  it("truncates inputs longer than the model window instead of failing", async () => {
+    mockLlama();
+    const { createEmbeddingProvider } = await import("./embeddings.js");
+    const { provider } = await createEmbeddingProvider({
+      config: {} as never,
+      provider: "local",
+      model: "",
+      fallback: "none",
+      local: { modelPath: "/models/mini.gguf" },
+    });
+    // Window 16 minus 4 reserved for special tokens = 12 tokens max.
+    await expect(provider.embedQuery("x".repeat(100))).resolves.toEqual([12]);
+    await expect(provider.embedQuery("short")).resolves.toEqual([5]);
+  });
+
+  it("adds EmbeddingGemma query/document prompts", async () => {
+    mockLlama();
+    const { createEmbeddingProvider } = await import("./embeddings.js");
+    const { provider } = await createEmbeddingProvider({
+      config: {} as never,
+      provider: "local",
+      model: "",
+      fallback: "none",
+      local: { modelPath: "/models/embeddinggemma-300M-Q8_0.gguf" },
+    });
+    // The fake vector is the token count (1 per char, capped at 12), so short inputs reveal the prefix.
+    const query = await provider.embedQuery("hi");
+    expect(query[0]).toBe(Math.min(12, "task: search result | query: hi".length));
+    expect(query[0]).toBeGreaterThan(2);
+  });
+});

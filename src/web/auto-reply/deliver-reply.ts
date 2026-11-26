@@ -1,3 +1,5 @@
+import { stripExpressionTags } from "../../infra/expression-tags.js";
+import { convertToOggOpus, isVoiceCompatibleAudio } from "../../media/audio.js";
 import { chunkMarkdownTextWithMode, type ChunkMode } from "../../auto-reply/chunk.js";
 import type { MarkdownTableMode } from "../../config/types.base.js";
 import { convertMarkdownTables } from "../../markdown/tables.js";
@@ -28,7 +30,10 @@ export async function deliverWebReply(params: {
   const replyStarted = Date.now();
   const tableMode = params.tableMode ?? "code";
   const chunkMode = params.chunkMode ?? "length";
-  const convertedText = convertMarkdownTables(replyResult.text || "", tableMode);
+  const convertedText = convertMarkdownTables(
+    stripExpressionTags(replyResult.text || ""),
+    tableMode,
+  );
   const textChunks = chunkMarkdownTextWithMode(convertedText, textLimit, chunkMode);
   const mediaList = replyResult.mediaUrls?.length
     ? replyResult.mediaUrls
@@ -115,12 +120,28 @@ export async function deliverWebReply(params: {
           "media:image",
         );
       } else if (media.kind === "audio") {
+        let audioBuffer = media.buffer;
+        let mimetype = media.contentType ?? "audio/ogg";
+        let isVoice = isVoiceCompatibleAudio({
+          contentType: media.contentType,
+          fileName: media.fileName,
+        });
+        if (!isVoice) {
+          const converted = await convertToOggOpus(media.buffer);
+          if (converted) {
+            audioBuffer = converted;
+            mimetype = "audio/ogg; codecs=opus";
+            isVoice = true;
+          }
+        } else if (mimetype === "audio/ogg") {
+          mimetype = "audio/ogg; codecs=opus";
+        }
         await sendWithRetry(
           () =>
             msg.sendMedia({
-              audio: media.buffer,
-              ptt: true,
-              mimetype: media.contentType,
+              audio: audioBuffer,
+              ptt: isVoice,
+              mimetype,
               caption,
             }),
           "media:audio",

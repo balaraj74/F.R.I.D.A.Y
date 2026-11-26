@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { AssistantMessage } from "@mariozechner/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FRIDAYConfig } from "../config/config.js";
@@ -473,6 +473,44 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
       } else {
         process.env.OPENAI_API_KEY = previousOpenAiKey;
       }
+      await fs.rm(agentDir, { recursive: true, force: true });
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails over to the next model on a stall without cooling down the profile", async () => {
+    const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "friday-agent-"));
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "friday-workspace-"));
+    try {
+      await writeAuthStore(agentDir);
+      runEmbeddedAttemptMock.mockResolvedValueOnce(
+        makeAttempt({ aborted: true, timedOut: true, stalled: true }),
+      );
+
+      await expect(
+        runEmbeddedPiAgent({
+          sessionId: "session:test",
+          sessionKey: "agent:test:stall",
+          sessionFile: path.join(workspaceDir, "session.jsonl"),
+          workspaceDir,
+          agentDir,
+          config: makeConfig({ fallbacks: ["openai/mock-2"] }),
+          prompt: "hello",
+          provider: "openai",
+          model: "mock-1",
+          authProfileId: "openai:p1",
+          authProfileIdSource: "auto",
+          timeoutMs: 5_000,
+          runId: "run:stall",
+        }),
+      ).rejects.toMatchObject({ name: "FailoverError", reason: "timeout" });
+
+      expect(runEmbeddedAttemptMock).toHaveBeenCalledTimes(1);
+      const stored = JSON.parse(
+        await fs.readFile(path.join(agentDir, "auth-profiles.json"), "utf-8"),
+      ) as { usageStats?: Record<string, { cooldownUntil?: number }> };
+      expect(stored.usageStats?.["openai:p1"]?.cooldownUntil).toBeUndefined();
+    } finally {
       await fs.rm(agentDir, { recursive: true, force: true });
       await fs.rm(workspaceDir, { recursive: true, force: true });
     }

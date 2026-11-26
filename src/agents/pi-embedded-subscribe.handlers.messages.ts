@@ -1,5 +1,5 @@
-import type { AgentEvent, AgentMessage } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage } from "@mariozechner/pi-ai";
+import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 
 import { parseReplyDirectives } from "../auto-reply/reply/reply-directives.js";
 import { emitAgentEvent } from "../infra/agent-events.js";
@@ -111,32 +111,42 @@ export function handleMessageUpdate(
     const previousText = ctx.state.lastStreamedAssistant ?? "";
     const { text: cleanedText, mediaUrls } = parseReplyDirectives(next);
     const { text: previousCleanedText } = parseReplyDirectives(previousText);
+    let deltaText = "";
     if (cleanedText.startsWith(previousCleanedText)) {
-      const deltaText = cleanedText.slice(previousCleanedText.length);
-      ctx.state.lastStreamedAssistant = next;
-      emitAgentEvent({
-        runId: ctx.params.runId,
-        stream: "assistant",
-        data: {
-          text: cleanedText,
-          delta: deltaText,
-          mediaUrls: mediaUrls?.length ? mediaUrls : undefined,
-        },
-      });
-      void ctx.params.onAgentEvent?.({
-        stream: "assistant",
-        data: {
-          text: cleanedText,
-          delta: deltaText,
-          mediaUrls: mediaUrls?.length ? mediaUrls : undefined,
-        },
-      });
-      if (ctx.params.onPartialReply && ctx.state.shouldEmitPartialReplies) {
-        void ctx.params.onPartialReply({
-          text: cleanedText,
-          mediaUrls: mediaUrls?.length ? mediaUrls : undefined,
-        });
+      deltaText = cleanedText.slice(previousCleanedText.length);
+    } else {
+      // A partial directive (e.g. trailing "MEDIA" before ":path" arrived) was stripped once complete.
+      // Compute the common prefix so streaming never stalls and mediaUrls still reach the HUD.
+      let prefix = 0;
+      const maxPrefix = Math.min(cleanedText.length, previousCleanedText.length);
+      while (prefix < maxPrefix && cleanedText[prefix] === previousCleanedText[prefix]) {
+        prefix++;
       }
+      deltaText = cleanedText.slice(prefix);
+    }
+    ctx.state.lastStreamedAssistant = next;
+    emitAgentEvent({
+      runId: ctx.params.runId,
+      stream: "assistant",
+      data: {
+        text: cleanedText,
+        delta: deltaText,
+        mediaUrls: mediaUrls?.length ? mediaUrls : undefined,
+      },
+    });
+    void ctx.params.onAgentEvent?.({
+      stream: "assistant",
+      data: {
+        text: cleanedText,
+        delta: deltaText,
+        mediaUrls: mediaUrls?.length ? mediaUrls : undefined,
+      },
+    });
+    if (ctx.params.onPartialReply && ctx.state.shouldEmitPartialReplies) {
+      void ctx.params.onPartialReply({
+        text: cleanedText,
+        mediaUrls: mediaUrls?.length ? mediaUrls : undefined,
+      });
     }
   }
 

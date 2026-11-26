@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import type { AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
-import type { Api, Model } from "@mariozechner/pi-ai";
+import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import type { Api, Model } from "@earendil-works/pi-ai";
 
 import { resolveStateDir } from "../config/paths.js";
 import { parseBooleanValue } from "../utils/boolean.js";
@@ -164,7 +164,7 @@ export function createAnthropicPayloadLogger(params: {
       if (!isAnthropicModel(model as Model<Api>)) {
         return streamFn(model, context, options);
       }
-      const nextOnPayload = (payload: unknown) => {
+      const nextOnPayload = (payload: unknown, payloadModel: Model<Api>) => {
         record({
           ...base,
           ts: new Date().toISOString(),
@@ -172,7 +172,7 @@ export function createAnthropicPayloadLogger(params: {
           payload,
           payloadDigest: digest(payload),
         });
-        options?.onPayload?.(payload);
+        return options?.onPayload?.(payload, payloadModel);
       };
       return streamFn(model, context, {
         ...options,

@@ -103,6 +103,7 @@ export const AgentDefaultsSchema = z
       })
       .strict()
       .optional(),
+    fastModel: z.string().optional(),
     thinkingDefault: z
       .union([
         z.literal("off"),

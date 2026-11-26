@@ -199,20 +199,8 @@ export function createAgentEventHandler({
     nodeSendToSession(sessionKey, "chat", payload);
   };
 
-  const shouldEmitToolEvents = (runId: string, sessionKey?: string) => {
-    const runContext = getAgentRunContext(runId);
-    const runVerbose = normalizeVerboseLevel(runContext?.verboseLevel);
-    if (runVerbose) return runVerbose === "on";
-    if (!sessionKey) return false;
-    try {
-      const { cfg, entry } = loadSessionEntry(sessionKey);
-      const sessionVerbose = normalizeVerboseLevel(entry?.verboseLevel);
-      if (sessionVerbose) return sessionVerbose === "on";
-      const defaultVerbose = normalizeVerboseLevel(cfg.agents?.defaults?.verboseDefault);
-      return defaultVerbose === "on";
-    } catch {
-      return false;
-    }
+  const shouldEmitToolEvents = (_runId: string, _sessionKey?: string) => {
+    return true; // Always broadcast tool events for real-time HUD and UI action observability
   };
 
   return (evt: AgentEventPayload) => {
@@ -250,7 +238,14 @@ export function createAgentEventHandler({
     if (sessionKey) {
       nodeSendToSession(sessionKey, "agent", agentPayload);
       if (!isAborted && evt.stream === "assistant" && typeof evt.data?.text === "string") {
-        emitChatDelta(sessionKey, clientRunId, evt.seq, evt.data.text);
+        const mediaUrls = Array.isArray(evt.data?.mediaUrls)
+          ? evt.data.mediaUrls.filter((u): u is string => typeof u === "string" && u.trim().length > 0)
+          : [];
+        const textWithMedia =
+          mediaUrls.length > 0
+            ? `${evt.data.text}\n\n${mediaUrls.map((u) => `MEDIA:${u}`).join("\n")}`
+            : evt.data.text;
+        emitChatDelta(sessionKey, clientRunId, evt.seq, textWithMedia);
       } else if (!isAborted && (lifecyclePhase === "end" || lifecyclePhase === "error")) {
         if (chatLink) {
           const finished = chatRunState.registry.shift(evt.runId);

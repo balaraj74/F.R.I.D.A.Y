@@ -181,4 +181,60 @@ describe("exec approvals", () => {
     await approvalSeen;
     expect(calls).toContain("exec.approval.request");
   });
+
+  // Autonomy policy (A3): hard-never commands need approval even with full access.
+  it.each([
+    ["full access, asks off", { ask: "off", security: "full" }, false],
+    [
+      "elevated full (normally bypasses approvals)",
+      {
+        ask: "off",
+        security: "full",
+        elevated: { enabled: true, allowed: true, defaultLevel: "full" },
+      },
+      true,
+    ],
+  ] as const)(
+    "requires approval for a hard-never command with %s",
+    async (_label, opts, elevated) => {
+      const { callGatewayTool } = await import("./tools/gateway.js");
+      const calls: string[] = [];
+      let resolveApproval: (() => void) | undefined;
+      const approvalSeen = new Promise<void>((resolve) => {
+        resolveApproval = resolve;
+      });
+      vi.mocked(callGatewayTool).mockImplementation(async (method) => {
+        calls.push(method);
+        if (method === "exec.approval.request") {
+          resolveApproval?.();
+          return { decision: "deny" }; // never actually run the command in tests
+        }
+        return { ok: true };
+      });
+
+      const { createExecTool } = await import("./bash-tools.exec.js");
+      const tool = createExecTool({ ...opts, approvalRunningNoticeMs: 0 } as never);
+      const result = await tool.execute("call5", {
+        command: "rm /nonexistent/friday-policy-test-file",
+        ...(elevated ? { elevated: true } : {}),
+      });
+      expect(result.details.status).toBe("approval-pending");
+      await approvalSeen;
+      expect(calls).toContain("exec.approval.request");
+    },
+  );
+
+  it("still runs ordinary commands without asking under full access", async () => {
+    const { callGatewayTool } = await import("./tools/gateway.js");
+    const calls: string[] = [];
+    vi.mocked(callGatewayTool).mockImplementation(async (method) => {
+      calls.push(method);
+      return { ok: true };
+    });
+    const { createExecTool } = await import("./bash-tools.exec.js");
+    const tool = createExecTool({ ask: "off", security: "full", approvalRunningNoticeMs: 0 });
+    const result = await tool.execute("call6", { command: "echo ok" });
+    expect(result.details.status).toBe("completed");
+    expect(calls).not.toContain("exec.approval.request");
+  });
 });

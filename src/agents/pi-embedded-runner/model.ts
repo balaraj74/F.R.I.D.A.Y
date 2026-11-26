@@ -1,5 +1,4 @@
-import type { Api, Model } from "@mariozechner/pi-ai";
-import { discoverAuthStorage, discoverModels } from "@mariozechner/pi-coding-agent";
+import type { Api, Model } from "@earendil-works/pi-ai";
 
 import type { FRIDAYConfig } from "../../config/config.js";
 import type { ModelDefinitionConfig } from "../../config/types.js";
@@ -7,6 +6,11 @@ import { resolveFRIDAYAgentDir } from "../agent-paths.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../defaults.js";
 import { normalizeModelCompat } from "../model-compat.js";
 import { normalizeProviderId } from "../model-selection.js";
+import {
+  createPiModelRuntime,
+  type ModelRegistry,
+  type ModelRuntime,
+} from "../pi-model-runtime.js";
 
 type InlineModelEntry = ModelDefinitionConfig & { provider: string; baseUrl?: string };
 type InlineProviderConfig = {
@@ -45,21 +49,20 @@ export function buildModelAliasLines(cfg?: FRIDAYConfig) {
     .map((entry) => `- ${entry.alias}: ${entry.model}`);
 }
 
-export function resolveModel(
+export async function resolveModel(
   provider: string,
   modelId: string,
   agentDir?: string,
   cfg?: FRIDAYConfig,
-): {
+): Promise<{
   model?: Model<Api>;
   error?: string;
-  authStorage: ReturnType<typeof discoverAuthStorage>;
-  modelRegistry: ReturnType<typeof discoverModels>;
-} {
+  modelRuntime: ModelRuntime;
+  modelRegistry: ModelRegistry;
+}> {
   const resolvedAgentDir = agentDir ?? resolveFRIDAYAgentDir();
-  const authStorage = discoverAuthStorage(resolvedAgentDir);
-  const modelRegistry = discoverModels(authStorage, resolvedAgentDir);
-  const model = modelRegistry.find(provider, modelId) as Model<Api> | null;
+  const { modelRuntime, modelRegistry } = await createPiModelRuntime(resolvedAgentDir);
+  const model = modelRegistry.find(provider, modelId) as Model<Api> | undefined;
   if (!model) {
     const providers = cfg?.models?.providers ?? {};
     const inlineModels = buildInlineProviderModels(providers);
@@ -71,7 +74,7 @@ export function resolveModel(
       const normalized = normalizeModelCompat(inlineMatch as Model<Api>);
       return {
         model: normalized,
-        authStorage,
+        modelRuntime,
         modelRegistry,
       };
     }
@@ -89,13 +92,13 @@ export function resolveModel(
         contextWindow: providerCfg?.models?.[0]?.contextWindow ?? DEFAULT_CONTEXT_TOKENS,
         maxTokens: providerCfg?.models?.[0]?.maxTokens ?? DEFAULT_CONTEXT_TOKENS,
       } as Model<Api>);
-      return { model: fallbackModel, authStorage, modelRegistry };
+      return { model: fallbackModel, modelRuntime, modelRegistry };
     }
     return {
       error: `Unknown model: ${provider}/${modelId}`,
-      authStorage,
+      modelRuntime,
       modelRegistry,
     };
   }
-  return { model: normalizeModelCompat(model), authStorage, modelRegistry };
+  return { model: normalizeModelCompat(model), modelRuntime, modelRegistry };
 }

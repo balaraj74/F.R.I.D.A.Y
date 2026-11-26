@@ -1,6 +1,5 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { Api, AssistantMessage, ImageContent, Model } from "@mariozechner/pi-ai";
-import type { discoverAuthStorage, discoverModels } from "@mariozechner/pi-coding-agent";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Api, AssistantMessage, ImageContent, Model } from "@earendil-works/pi-ai";
 
 import type { ReasoningLevel, ThinkLevel, VerboseLevel } from "../../../auto-reply/thinking.js";
 import type { FRIDAYConfig } from "../../../config/config.js";
@@ -11,9 +10,7 @@ import type { BlockReplyChunking, ToolResultFormat } from "../../pi-embedded-sub
 import type { SkillSnapshot } from "../../skills.js";
 import type { SessionSystemPromptReport } from "../../../config/sessions/types.js";
 import type { ClientToolDefinition } from "./params.js";
-
-type AuthStorage = ReturnType<typeof discoverAuthStorage>;
-type ModelRegistry = ReturnType<typeof discoverModels>;
+import type { ModelRegistry, ModelRuntime } from "../../pi-model-runtime.js";
 
 export type EmbeddedRunAttemptParams = {
   sessionId: string;
@@ -53,7 +50,7 @@ export type EmbeddedRunAttemptParams = {
   provider: string;
   modelId: string;
   model: Model<Api>;
-  authStorage: AuthStorage;
+  modelRuntime: ModelRuntime;
   modelRegistry: ModelRegistry;
   thinkLevel: ThinkLevel;
   verboseLevel?: VerboseLevel;
@@ -91,6 +88,8 @@ export type EmbeddedRunAttemptParams = {
 export type EmbeddedRunAttemptResult = {
   aborted: boolean;
   timedOut: boolean;
+  /** The model went silent mid-request (stuck upstream), as opposed to the whole run timing out. */
+  stalled?: boolean;
   promptError: unknown;
   sessionIdUsed: string;
   systemPromptReport?: SessionSystemPromptReport;

@@ -213,9 +213,9 @@ export async function monitorWebChannel(
       channel: "whatsapp",
       accountId: account.accountId,
     });
-    enqueueSystemEvent(`WhatsApp gateway connected${selfE164 ? ` as ${selfE164}` : ""}.`, {
-      sessionKey: connectRoute.sessionKey,
-    });
+    // Connection state is plumbing, not conversation: it's in the logs, and leaving it out of
+    // the chat keeps it from being glued onto Sir's next message after every restart.
+    void connectRoute;
 
     setActiveWebListener(account.accountId, listener);
     unregisterUnhandled = registerUnhandledRejectionHandler((reason) => {
@@ -369,10 +369,6 @@ export async function monitorWebChannel(
       },
       "web reconnect: connection closed",
     );
-
-    enqueueSystemEvent(`WhatsApp gateway disconnected (status ${statusCode ?? "unknown"})`, {
-      sessionKey: connectRoute.sessionKey,
-    });
 
     if (loggedOut) {
       runtime.error(

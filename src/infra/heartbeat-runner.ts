@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { isAutonomyPaused } from "./autonomy-state.js";
 import path from "node:path";
 
 import {
@@ -441,6 +442,10 @@ export async function runHeartbeatOnce(opts: {
   }
   if (!resolveHeartbeatIntervalMs(cfg, undefined, heartbeat)) {
     return { status: "skipped", reason: "disabled" };
+  }
+  // Kill switch: `friday autonomy pause` stops the autonomous loop entirely.
+  if (isAutonomyPaused()) {
+    return { status: "skipped", reason: "autonomy-paused" };
   }
 
   const startedAt = opts.deps?.nowMs?.() ?? Date.now();

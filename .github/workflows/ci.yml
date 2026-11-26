@@ -78,6 +78,9 @@ jobs:
             task: test
             command: pnpm canvas:a2ui:bundle && pnpm test
           - runtime: node
+            task: jobs-evals-chaos
+            command: pnpm test:evals
+          - runtime: node
             task: build
             command: pnpm build
           - runtime: node

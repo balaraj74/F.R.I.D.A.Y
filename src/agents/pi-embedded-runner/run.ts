@@ -52,12 +52,21 @@ import type { RunEmbeddedPiAgentParams } from "./run/params.js";
 import { buildEmbeddedRunPayloads } from "./run/payloads.js";
 import type { EmbeddedPiAgentMeta, EmbeddedPiRunResult } from "./types.js";
 import { describeUnknownError } from "./utils.js";
+import { extractAssistantText } from "../pi-embedded-utils.js";
 
 type ApiKeyInfo = ResolvedProviderAuth;
 
 // Avoid Anthropic's refusal test token poisoning session transcripts.
 const ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL = "ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL";
 const ANTHROPIC_MAGIC_STRING_REPLACEMENT = "ANTHROPIC MAGIC STRING TRIGGER REFUSAL (redacted)";
+
+const MAX_TRUNCATED_REPLY_RETRIES = 3;
+const TRUNCATED_REPLY_PROMPT =
+  "(Your last reply was cut off at the output limit before your tool call finished, so nothing was " +
+  "written. Your original request above still applies in full. Continue it in smaller steps: " +
+  "keep each write/edit call under about 300 lines; for a large file, first write a short " +
+  "skeleton, then add the remaining sections with separate edit calls. Check what already exists " +
+  "on disk before redoing anything.)";
 
 function scrubAnthropicRefusalMagic(prompt: string): string {
   if (!prompt.includes(ANTHROPIC_MAGIC_STRING_TRIGGER_REFUSAL)) return prompt;
@@ -99,7 +108,7 @@ export async function runEmbeddedPiAgent(
         (params.config?.agents?.defaults?.model?.fallbacks?.length ?? 0) > 0;
       await ensureFRIDAYModelsJson(params.config, agentDir);
 
-      const { model, error, authStorage, modelRegistry } = resolveModel(
+      const { model, error, modelRuntime, modelRegistry } = await resolveModel(
         provider,
         modelId,
         agentDir,
@@ -234,9 +243,9 @@ export async function runEmbeddedPiAgent(
           const copilotToken = await resolveCopilotApiToken({
             githubToken: apiKeyInfo.apiKey,
           });
-          authStorage.setRuntimeApiKey(model.provider, copilotToken.token);
+          await modelRuntime.setRuntimeApiKey(model.provider, copilotToken.token);
         } else {
-          authStorage.setRuntimeApiKey(model.provider, apiKeyInfo.apiKey);
+          await modelRuntime.setRuntimeApiKey(model.provider, apiKeyInfo.apiKey);
         }
         lastProfileId = apiKeyInfo.profileId;
       };
@@ -293,13 +302,19 @@ export async function runEmbeddedPiAgent(
       }
 
       let overflowCompactionAttempted = false;
+      // One nudge when the model ends a turn without a word (see below).
+      let emptyReplyRetried = false;
+      // Separate budget: each truncation retry makes progress when the model splits the work.
+      let truncatedReplyRetries = 0;
+      let promptOverride: string | undefined;
       try {
         while (true) {
           attemptedThinking.add(thinkLevel);
           await fs.mkdir(resolvedWorkspace, { recursive: true });
 
+          const basePrompt = promptOverride ?? params.prompt;
           const prompt =
-            provider === "anthropic" ? scrubAnthropicRefusalMagic(params.prompt) : params.prompt;
+            provider === "anthropic" ? scrubAnthropicRefusalMagic(basePrompt) : basePrompt;
 
           const attempt = await runEmbeddedAttempt({
             sessionId: params.sessionId,
@@ -323,12 +338,12 @@ export async function runEmbeddedPiAgent(
             config: params.config,
             skillsSnapshot: params.skillsSnapshot,
             prompt,
-            images: params.images,
+            images: promptOverride ? undefined : params.images,
             disableTools: params.disableTools,
             provider,
             modelId,
             model,
-            authStorage,
+            modelRuntime,
             modelRegistry,
             thinkLevel,
             verboseLevel: params.verboseLevel,
@@ -357,6 +372,17 @@ export async function runEmbeddedPiAgent(
           });
 
           const { aborted, promptError, timedOut, sessionIdUsed, lastAssistant } = attempt;
+          // A stalled model is a model problem, not the account's: go straight to the next model
+          // without putting the (shared) login in cooldown, or every fallback on it would be skipped.
+          if (attempt.stalled && fallbackConfigured) {
+            throw new FailoverError("The model stopped responding.", {
+              reason: "timeout",
+              provider,
+              model: modelId,
+              profileId: lastProfileId,
+              status: 408,
+            });
+          }
 
           if (promptError && !aborted) {
             const errorText = describeUnknownError(promptError);
@@ -617,6 +643,38 @@ export async function runEmbeddedPiAgent(
             model: lastAssistant?.model ?? model.id,
             usage,
           };
+
+          // The model sometimes ends a turn after tool work without a single word, so Sir gets
+          // nothing. Ask once more, in the same session, for the answer from what it already found.
+          const saidNothing =
+            !aborted &&
+            !timedOut &&
+            !promptError &&
+            lastAssistant !== undefined &&
+            lastAssistant.stopReason !== "error" &&
+            attempt.assistantTexts.every((t) => !t.trim()) &&
+            !extractAssistantText(lastAssistant).trim();
+          // A reply cut off at the output limit lost its unfinished tool call (usually one huge
+          // `write`). Saying "answer now" made the model start the same oversized call again, so
+          // tell it why it failed and to build the output in smaller pieces instead.
+          const truncated = saidNothing && lastAssistant?.stopReason === "length";
+          if (truncated && truncatedReplyRetries < MAX_TRUNCATED_REPLY_RETRIES) {
+            truncatedReplyRetries += 1;
+            promptOverride = TRUNCATED_REPLY_PROMPT;
+            log.warn(
+              `reply from ${provider}/${modelId} hit the output limit; asking for smaller steps (${truncatedReplyRetries}/${MAX_TRUNCATED_REPLY_RETRIES}, runId=${params.runId})`,
+            );
+            continue;
+          }
+          if (saidNothing && !truncated && !emptyReplyRetried) {
+            emptyReplyRetried = true;
+            promptOverride =
+              "(You ended your turn without replying. Answer Sir now in plain words using what you already found; don't repeat tool calls you've already made.)";
+            log.warn(
+              `empty reply from ${provider}/${modelId}; asking once more (runId=${params.runId})`,
+            );
+            continue;
+          }
 
           const payloads = buildEmbeddedRunPayloads({
             assistantTexts: attempt.assistantTexts,

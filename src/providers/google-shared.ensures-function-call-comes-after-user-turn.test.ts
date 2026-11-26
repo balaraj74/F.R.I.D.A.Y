@@ -1,5 +1,5 @@
-import { convertMessages } from "@mariozechner/pi-ai/dist/providers/google-shared.js";
-import type { Context, Model } from "@mariozechner/pi-ai/dist/types.js";
+import { convertMessages } from "@earendil-works/pi-ai/api/google-shared";
+import type { Context, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 
 const asRecord = (value: unknown): Record<string, unknown> => {
@@ -22,20 +22,6 @@ const makeModel = (id: string): Model<"google-generative-ai"> =>
     contextWindow: 1,
     maxTokens: 1,
   }) as Model<"google-generative-ai">;
-
-const makeGeminiCliModel = (id: string): Model<"google-gemini-cli"> =>
-  ({
-    id,
-    name: id,
-    api: "google-gemini-cli",
-    provider: "google-gemini-cli",
-    baseUrl: "https://example.invalid",
-    reasoning: false,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 1,
-    maxTokens: 1,
-  }) as Model<"google-gemini-cli">;
 
 describe("google-shared convertTools", () => {
   it("ensures function call comes after user turn, not after model turn", () => {
@@ -103,10 +89,12 @@ describe("google-shared convertTools", () => {
     } as unknown as Context;
 
     const contents = convertMessages(model, context);
-    expect(contents).toHaveLength(3);
+    // pi-ai 1.x closes the unanswered tool call with a synthetic functionResponse (user turn).
+    expect(contents).toHaveLength(4);
     expect(contents[0].role).toBe("user");
     expect(contents[1].role).toBe("model");
     expect(contents[2].role).toBe("model");
+    expect(contents[3].role).toBe("user");
     const toolCallPart = contents[2].parts?.find(
       (part) => typeof part === "object" && part !== null && "functionCall" in part,
     );
@@ -114,8 +102,9 @@ describe("google-shared convertTools", () => {
     expect(toolCall.functionCall).toBeTruthy();
   });
 
-  it("strips tool call and response ids for google-gemini-cli", () => {
-    const model = makeGeminiCliModel("gemini-3-flash");
+  // google-gemini-cli was removed from pi in 0.71; Gemini 3+ now requires tool call ids.
+  it("keeps tool call and response ids for Gemini 3 models", () => {
+    const model = makeModel("gemini-3-flash");
     const context = {
       messages: [
         {
@@ -133,8 +122,8 @@ describe("google-shared convertTools", () => {
               thoughtSignature: "dGVzdA==",
             },
           ],
-          api: "google-gemini-cli",
-          provider: "google-gemini-cli",
+          api: "google-generative-ai",
+          provider: "google",
           model: "gemini-3-flash",
           usage: {
             input: 0,
@@ -176,7 +165,7 @@ describe("google-shared convertTools", () => {
     const toolCall = asRecord(toolCallPart);
     const toolResponse = asRecord(toolResponsePart);
 
-    expect(asRecord(toolCall.functionCall).id).toBeUndefined();
-    expect(asRecord(toolResponse.functionResponse).id).toBeUndefined();
+    expect(asRecord(toolCall.functionCall).id).toBe("call_1");
+    expect(asRecord(toolResponse.functionResponse).id).toBe("call_1");
   });
 });

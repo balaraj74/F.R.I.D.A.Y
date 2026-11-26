@@ -23,7 +23,14 @@ export default defineConfig({
     include: [
       "src/**/*.test.ts",
       "extensions/**/*.test.ts",
+      "friday-hud/electron/**/*.test.ts",
+      "friday-hud/src/services/**/*.test.ts",
+      "friday-hud/src/design-review/**/*.test.{ts,tsx}",
+      "friday-hud/src/jobs/**/*.test.{ts,tsx}",
       "test/format-error.test.ts",
+      // Engine track: Eval_Suite and Chaos_Suite (mocked models, fakes only).
+      "tests/jobs-evals/**/*.test.ts",
+      "tests/jobs-chaos/**/*.test.ts",
     ],
     setupFiles: ["test/setup.ts"],
     exclude: [
