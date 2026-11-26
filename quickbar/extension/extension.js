@@ -34,7 +34,7 @@ export default class FridayQuickBar extends Extension {
                 this._shakeOn = this._settings.get_boolean('shake-enabled');
                 this._shake.reset();
             }),
-            ...['shake-min-stroke', 'shake-reversals', 'shake-min-speed', 'shake-debug'].map(key =>
+            ...['shake-min-stroke', 'shake-reversals', 'shake-min-speed', 'shake-window-ms', 'shake-debug'].map(key =>
                 this._settings.connect(`changed::${key}`, () => this._makeShake())),
             this._settings.connect('changed::chord-enabled', () => {
                 this._chordOn = this._settings.get_boolean('chord-enabled');
@@ -96,9 +96,10 @@ export default class FridayQuickBar extends Extension {
             minStroke: get('shake-min-stroke'),
             minReversals: get('shake-reversals'),
             minSpeed: get('shake-min-speed'),
+            windowMs: get('shake-window-ms'),
         });
         console.log(`quickbar: shake detector ready (stroke ${get('shake-min-stroke')} px, ` +
-            `${get('shake-reversals')} reversals, ${get('shake-min-speed')} px/s, debug ${this._shakeDebug})`);
+            `${get('shake-reversals')} reversals in ${get('shake-window-ms')} ms, ${get('shake-min-speed')} px/s, debug ${this._shakeDebug})`);
     }
 
     _schedule(ms, fn) {

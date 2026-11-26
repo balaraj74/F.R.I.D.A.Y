@@ -19,14 +19,19 @@
       <summary>Smallest back-and-forth stroke that counts, in pixels</summary>
     </key>
     <key name="shake-reversals" type="i">
-      <range min="2" max="8"/>
-      <default>3</default>
-      <summary>How many direction changes make a shake</summary>
+      <range min="2" max="12"/>
+      <default>7</default>
+      <summary>How many direction changes make a shake gesture (7 is four shakes: out and back four times)</summary>
     </key>
     <key name="shake-min-speed" type="i">
       <range min="100" max="4000"/>
       <default>250</default>
       <summary>Slowest average pointer speed that counts as a shake, in pixels per second</summary>
+    </key>
+    <key name="shake-window-ms" type="i">
+      <range min="400" max="4000"/>
+      <default>1500</default>
+      <summary>All the direction changes must happen within this many milliseconds</summary>
     </key>
     <key name="shake-debug" type="b">
       <default>true</default>

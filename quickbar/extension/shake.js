@@ -10,9 +10,10 @@
 // scribble fails the "close to a line" test, so none of them trigger.
 
 export const SHAKE_DEFAULTS = Object.freeze({
-    windowMs: 900,
+    // Four shakes: out and back four times is eight strokes and seven changes of direction.
+    windowMs: 1500,
     minStroke: 15,
-    minReversals: 3,
+    minReversals: 7,
     maxCrossRatio: 0.6,
     // A shake is fast; slow back-and-forth positioning is not.
     minSpeed: 250,

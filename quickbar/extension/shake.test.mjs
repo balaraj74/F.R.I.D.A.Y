@@ -101,9 +101,20 @@ describe('ShakeDetector with a real hand', () => {
         expect(run(wave(1200, 6, 35))).not.toBeNull();
     });
 
-    it('fires on a quick left-right-left-right', () => {
-        // Two and a half cycles in about half a second.
-        expect(run(wave(600, 5, 100))).not.toBeNull();
+    it('needs four shakes: two or three do not open it', () => {
+        // wave(ms, hz): a shake is one full cycle, out and back.
+        expect(run(wave(400, 5, 100))).toBeNull(); // 2 shakes
+        expect(run(wave(600, 5, 100))).toBeNull(); // 3 shakes
+        expect(run(wave(380, 8, 60))).toBeNull(); // 3 quick, small shakes
+    });
+
+    it('opens on four shakes, even small and quick ones', () => {
+        expect(run(wave(1000, 4, 100))).not.toBeNull(); // 4 shakes, 100 px each way
+        expect(run(wave(750, 6, 40))).not.toBeNull(); // 4.5 quick, small shakes
+    });
+
+    it('opens on four shakes over the time it takes a real hand', () => {
+        expect(run(wave(1400, 3.2, 90))).not.toBeNull(); // slower, 4.5 shakes in under 1.5 s
     });
 
     it('fires on a shake with jitter in the samples', () => {
