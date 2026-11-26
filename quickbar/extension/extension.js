@@ -22,16 +22,20 @@ const MOD_MASK = Clutter.ModifierType.CONTROL_MASK | Clutter.ModifierType.MOD1_M
 export default class FridayQuickBar extends Extension {
     enable() {
         this._settings = this.getSettings();
-        this._shake = new ShakeDetector();
         this._summoning = false;
+        this._lastDebug = 0;
+        this._moves = 0;
         this._timers = new Set();
         this._shakeOn = this._settings.get_boolean('shake-enabled');
         this._chordOn = this._settings.get_boolean('chord-enabled');
+        this._makeShake();
         this._settingsIds = [
             this._settings.connect('changed::shake-enabled', () => {
                 this._shakeOn = this._settings.get_boolean('shake-enabled');
                 this._shake.reset();
             }),
+            ...['shake-min-stroke', 'shake-reversals', 'shake-min-speed', 'shake-debug'].map(key =>
+                this._settings.connect(`changed::${key}`, () => this._makeShake())),
             this._settings.connect('changed::chord-enabled', () => {
                 this._chordOn = this._settings.get_boolean('chord-enabled');
             }),
@@ -78,6 +82,19 @@ export default class FridayQuickBar extends Extension {
         this._settings = null;
     }
 
+    /** Builds the shake detector from the current settings (also called when a setting changes). */
+    _makeShake() {
+        const get = key => this._settings.get_int(key);
+        this._shakeDebug = this._settings.get_boolean('shake-debug');
+        this._shake = new ShakeDetector({
+            minStroke: get('shake-min-stroke'),
+            minReversals: get('shake-reversals'),
+            minSpeed: get('shake-min-speed'),
+        });
+        console.log(`quickbar: shake detector ready (stroke ${get('shake-min-stroke')} px, ` +
+            `${get('shake-reversals')} reversals, ${get('shake-min-speed')} px/s, debug ${this._shakeDebug})`);
+    }
+
     _schedule(ms, fn) {
         let id = 0;
         id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms, () => {
@@ -104,7 +121,20 @@ export default class FridayQuickBar extends Extension {
                     this._shake.reset();
                 } else {
                     const [x, y] = ev.get_coords();
-                    if (this._shake.push(x, y, GLib.get_monotonic_time() / 1000)) this._summon('shake');
+                    const now = GLib.get_monotonic_time() / 1000;
+                    this._moves++;
+                    if (this._shake.push(x, y, now)) {
+                        if (this._shakeDebug) console.log('quickbar: shake detected');
+                        this._summon('shake');
+                    } else if (this._shakeDebug && now - this._lastDebug > 400) {
+                        // Only while the pointer is clearly doing something shake-like, to keep the log short.
+                        const m = this._shake.metrics();
+                        if (m.reversals >= 1 && m.speed > 300) {
+                            this._lastDebug = now;
+                            console.log(`quickbar: motion events=${this._moves} samples=${m.n} reversals=${m.reversals} ` +
+                                `range=${Math.round(m.mainRange)}px cross=${Math.round(m.crossRange)}px speed=${Math.round(m.speed)}px/s`);
+                        }
+                    }
                 }
             }
             break;

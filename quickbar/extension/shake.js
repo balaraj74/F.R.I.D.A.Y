@@ -10,10 +10,12 @@
 // scribble fails the "close to a line" test, so none of them trigger.
 
 export const SHAKE_DEFAULTS = Object.freeze({
-    windowMs: 800,
-    minStroke: 60,
-    minReversals: 4,
-    maxCrossRatio: 0.5,
+    windowMs: 900,
+    minStroke: 40,
+    minReversals: 3,
+    maxCrossRatio: 0.6,
+    // A shake is fast; slow back-and-forth positioning is not.
+    minSpeed: 700,
     cooldownMs: 1500,
     evalEveryMs: 16,
 });
@@ -66,9 +68,11 @@ export class ShakeDetector {
         }
     }
 
-    _looksShaken() {
+    /** What the recent path looks like; used by the decision and by the debug log. */
+    metrics() {
         const n = this._t.length;
-        if (n < 8) return false;
+        const empty = {n, reversals: 0, mainRange: 0, crossRange: 0, speed: 0};
+        if (n < 8) return empty;
         const o = this._o;
 
         let mx = 0;
@@ -102,6 +106,7 @@ export class ShakeDetector {
         let maxU = -Infinity;
         let minW = Infinity;
         let maxW = -Infinity;
+        let path = 0;
         for (let i = 0; i < n; i++) {
             const dx = this._x[i] - mx;
             const dy = this._y[i] - my;
@@ -111,6 +116,7 @@ export class ShakeDetector {
             if (u > maxU) maxU = u;
             if (w < minW) minW = w;
             if (w > maxW) maxW = w;
+            if (i > 0) path += Math.hypot(this._x[i] - this._x[i - 1], this._y[i] - this._y[i - 1]);
             if (i === 0) {
                 extreme = u;
                 continue;
@@ -136,9 +142,15 @@ export class ShakeDetector {
                 }
             }
         }
-        if (reversals < o.minReversals) return false;
-        const mainRange = maxU - minU;
-        const crossRange = maxW - minW;
-        return mainRange > 0 && crossRange <= o.maxCrossRatio * mainRange;
+        const spanMs = Math.max(1, this._t[n - 1] - this._t[0]);
+        return {n, reversals, mainRange: maxU - minU, crossRange: maxW - minW, speed: (path * 1000) / spanMs};
+    }
+
+    _looksShaken() {
+        const m = this.metrics();
+        const o = this._o;
+        if (m.reversals < o.minReversals) return false;
+        if (m.speed < o.minSpeed) return false;
+        return m.mainRange > 0 && m.crossRange <= o.maxCrossRatio * m.mainRange;
     }
 }

@@ -13,5 +13,24 @@
       <default>["&lt;Control&gt;&lt;Alt&gt;space"]</default>
       <summary>Keyboard shortcut that summons the bar (no side effects, unlike the F + Space chord)</summary>
     </key>
+    <key name="shake-min-stroke" type="i">
+      <range min="10" max="400"/>
+      <default>40</default>
+      <summary>Smallest back-and-forth stroke that counts, in pixels</summary>
+    </key>
+    <key name="shake-reversals" type="i">
+      <range min="2" max="8"/>
+      <default>3</default>
+      <summary>How many direction changes make a shake</summary>
+    </key>
+    <key name="shake-min-speed" type="i">
+      <range min="100" max="4000"/>
+      <default>700</default>
+      <summary>Slowest average pointer speed that counts as a shake, in pixels per second</summary>
+    </key>
+    <key name="shake-debug" type="b">
+      <default>true</default>
+      <summary>Log what the shake detector sees to the journal while the mouse is moving fast</summary>
+    </key>
   </schema>
 </schemalist>

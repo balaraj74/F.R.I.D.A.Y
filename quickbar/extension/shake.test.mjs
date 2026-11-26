@@ -95,3 +95,39 @@ describe('ShakeDetector', () => {
         expect(fired).toBe(true);
     });
 });
+
+describe('ShakeDetector with a real hand', () => {
+    it('fires on a small, fast shake', () => {
+        expect(run(wave(1200, 6, 35))).not.toBeNull();
+    });
+
+    it('fires on a quick left-right-left-right', () => {
+        // Two and a half cycles in about half a second.
+        expect(run(wave(600, 5, 100))).not.toBeNull();
+    });
+
+    it('fires on a shake with jitter in the samples', () => {
+        const noisy = wave(1300, 4.5, 80).map(([x, y], i) => [x + ((i * 37) % 15) - 7, y + ((i * 53) % 13) - 6]);
+        expect(run(noisy)).not.toBeNull();
+    });
+
+    it('does not fire on a slow side-to-side drift', () => {
+        expect(run(wave(3000, 1, 120))).toBeNull();
+    });
+
+    it('can be made stricter or looser from the settings', () => {
+        const small = wave(1200, 6, 25);
+        expect(run(small, 8, new ShakeDetector({minStroke: 40}))).toBeNull();
+        expect(run(small, 8, new ShakeDetector({minStroke: 20, minSpeed: 400}))).not.toBeNull();
+    });
+
+    it('reports what it sees', () => {
+        const d = new ShakeDetector({minReversals: 99}); // never fires, so the samples stay
+        let t = 0;
+        for (const [x, y] of wave(500, 4, 110)) d.push(x, y, (t += 8));
+        const m = d.metrics();
+        expect(m.reversals).toBeGreaterThanOrEqual(2);
+        expect(m.speed).toBeGreaterThan(700);
+        expect(m.mainRange).toBeGreaterThan(150);
+    });
+});
