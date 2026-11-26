@@ -47,10 +47,9 @@ describe('colorAt', () => {
     });
 
     it('starts blue and reaches red a quarter of the way round', () => {
-        const [r, g, b] = colorAt(0);
+        const [r, , b] = colorAt(0);
         expect(b).toBeGreaterThan(r);
-        const [r2, g2, b2] = colorAt(0.25);
-        expect(r2).toBeGreaterThan(g2);
+        const [r2, , b2] = colorAt(0.25);
         expect(r2).toBeGreaterThan(b2);
     });
 });

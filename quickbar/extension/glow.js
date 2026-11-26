@@ -28,43 +28,34 @@ export function roundedRectPoints(w, h, r, n) {
     const straightW = w - 2 * radius;
     const straightH = h - 2 * radius;
     const arc = (Math.PI / 2) * radius;
-    const total = 2 * straightW + 2 * straightH + 4 * arc;
+    const corner = (cx, cy, from) => d => {
+        const a = from + d / radius;
+        return [cx + radius * Math.cos(a), cy + radius * Math.sin(a)];
+    };
+    // Clockwise from the end of the top-left corner: each side, then the corner that follows it.
+    const segments = [
+        {len: straightW, at: d => [radius + d, 0]},
+        {len: arc, at: corner(w - radius, radius, -Math.PI / 2)},
+        {len: straightH, at: d => [w, radius + d]},
+        {len: arc, at: corner(w - radius, h - radius, 0)},
+        {len: straightW, at: d => [w - radius - d, h]},
+        {len: arc, at: corner(radius, h - radius, Math.PI / 2)},
+        {len: straightH, at: d => [0, h - radius - d]},
+        {len: arc, at: corner(radius, radius, Math.PI)},
+    ];
+    const total = segments.reduce((sum, seg) => sum + seg.len, 0);
     const pts = [];
     for (let i = 0; i < n; i++) {
         let d = (i / n) * total;
-        let x;
-        let y;
-        if (d < straightW) {
-            x = radius + d;
-            y = 0;
-        } else if ((d -= straightW) < arc) {
-            const a = -Math.PI / 2 + d / radius;
-            x = w - radius + radius * Math.cos(a);
-            y = radius + radius * Math.sin(a);
-        } else if ((d -= arc) < straightH) {
-            x = w;
-            y = radius + d;
-        } else if ((d -= straightH) < arc) {
-            const a = d / radius;
-            x = w - radius + radius * Math.cos(a);
-            y = h - radius + radius * Math.sin(a);
-        } else if ((d -= arc) < straightW) {
-            x = w - radius - d;
-            y = h;
-        } else if ((d -= straightW) < arc) {
-            const a = Math.PI / 2 + d / radius;
-            x = radius + radius * Math.cos(a);
-            y = h - radius + radius * Math.sin(a);
-        } else if ((d -= arc) < straightH) {
-            x = 0;
-            y = h - radius - d;
-        } else {
-            d -= straightH;
-            const a = Math.PI + d / radius;
-            x = radius + radius * Math.cos(a);
-            y = radius + radius * Math.sin(a);
+        let point = segments[segments.length - 1].at(segments[segments.length - 1].len);
+        for (const seg of segments) {
+            if (d < seg.len) {
+                point = seg.at(d);
+                break;
+            }
+            d -= seg.len;
         }
-        pts.push([x, y]);
+        pts.push(point);
     }
     return pts;
 }
