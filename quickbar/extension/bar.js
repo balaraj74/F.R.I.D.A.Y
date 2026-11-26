@@ -11,27 +11,36 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {colorAt, glowFrame, intensityAt, roundedRectPoints} from './glow.js';
 
 const CARD_WIDTH = 500;
-const CARD_RADIUS = 24;
-const PAD = 24; // room around the card for the light
+const CARD_RADIUS = 26;
+const PAD = 12; // room around the card for the light
 const CURSOR_GAP = 14;
 const EDGE_GAP = 8;
 const HEADER_ROW_HEIGHT = 104;
 const MIN_ANSWER_HEIGHT = 120;
 const MAX_ANSWER_HEIGHT = 340;
 const GLOW_SEGMENTS = 96;
-const GLOW_FRAME_MS = 33;
+const GLOW_FRAME_MS = 25; // about 40 frames a second while the bar is open
 // Cairo constants (the shell does not export them): operator SOURCE replaces instead of blending,
 // so overlapping round caps never double up into visible beads.
 const CAIRO_OPERATOR_SOURCE = 1;
 const CAIRO_LINE_CAP_ROUND = 1;
+// The light: a thin bright line with a soft halo. Wide, faint strokes first, the sharp line last.
 const GLOW_LAYERS = [
-    {width: 22, alpha: 0.2},
-    {width: 12, alpha: 0.36},
-    {width: 5, alpha: 0.8},
-    {width: 2, alpha: 1},
+    {width: 9, alpha: 0.14},
+    {width: 4.5, alpha: 0.34},
+    {width: 1.7, alpha: 1},
 ];
-// The light runs on a path a little outside the card's edge, so it hugs the glass instead of hiding under it.
-const GLOW_OUTSET = 3;
+const GLOW_OUTSET = 0.5;
+// Segments dimmer than this are skipped: most of the ring is dark between comets, and it saves work.
+const GLOW_MIN_VISIBLE = 0.03;
+// The glass rim: bright where light would hit the top-left, fading toward the bottom-right.
+const RIM_WIDTH = 1.4;
+const RIM_ALPHA_LIT = 0.85;
+const RIM_ALPHA_SHADE = 0.14;
+// A second, fainter rim just inside the first gives the glass thickness.
+const INNER_RIM_INSET = 3;
+const INNER_RIM_ALPHA_LIT = 0.28;
+const INNER_RIM_ALPHA_SHADE = 0.04;
 
 /** Light cleanup so markdown reads cleanly in a plain label. */
 export function displayText(text) {
@@ -99,7 +108,7 @@ export class QuickBar {
         try {
             // Blurs whatever is behind the card, which is what makes it look like glass.
             card.add_effect_with_name('fqb-blur', new Shell.BlurEffect({
-                radius: 28,
+                radius: 26,
                 brightness: 1.0,
                 mode: Shell.BlurMode.BACKGROUND,
             }));
@@ -166,7 +175,7 @@ export class QuickBar {
         });
 
         root.add_child(card);
-        root.add_child(this._glow); // above the card: it also covers the blur's square corners
+        root.add_child(this._glow); // on top: the rim and the moving light also cover the blur's square corners
         this._card = card;
         return root;
     }
@@ -310,12 +319,43 @@ export class QuickBar {
             cr.translate(PAD - GLOW_OUTSET, PAD - GLOW_OUTSET);
             cr.setOperator(CAIRO_OPERATOR_SOURCE);
             cr.setLineCap(CAIRO_LINE_CAP_ROUND);
+            const outW = w + 2 * GLOW_OUTSET;
+            const outH = h + 2 * GLOW_OUTSET;
+            // 1. The rim of the glass: a fine white line, brighter toward the top-left.
+            cr.setLineWidth(RIM_WIDTH);
+            for (let i = 0; i < pts.length; i++) {
+                const [x, y] = pts[i];
+                const lit = 1 - Math.min(1, Math.max(0, (x / outW + y / outH) / 2));
+                cr.setSourceRGBA(1, 1, 1, RIM_ALPHA_SHADE + (RIM_ALPHA_LIT - RIM_ALPHA_SHADE) * lit * lit);
+                const next = pts[(i + 1) % pts.length];
+                cr.moveTo(x, y);
+                cr.lineTo(next[0], next[1]);
+                cr.stroke();
+            }
+            // 1b. The inner rim: the thickness of the glass.
+            if (this._innerKey !== key) {
+                this._inner = roundedRectPoints(outW - 2 * INNER_RIM_INSET, outH - 2 * INNER_RIM_INSET, CARD_RADIUS - INNER_RIM_INSET, GLOW_SEGMENTS);
+                this._innerKey = key;
+            }
+            cr.setLineWidth(1);
+            for (let i = 0; i < this._inner.length; i++) {
+                const [x, y] = this._inner[i];
+                const lit = 1 - Math.min(1, Math.max(0, (x / (outW - 2 * INNER_RIM_INSET) + y / (outH - 2 * INNER_RIM_INSET)) / 2));
+                cr.setSourceRGBA(1, 1, 1, INNER_RIM_ALPHA_SHADE + (INNER_RIM_ALPHA_LIT - INNER_RIM_ALPHA_SHADE) * lit * lit);
+                const next = this._inner[(i + 1) % this._inner.length];
+                cr.moveTo(x + INNER_RIM_INSET, y + INNER_RIM_INSET);
+                cr.lineTo(next[0] + INNER_RIM_INSET, next[1] + INNER_RIM_INSET);
+                cr.stroke();
+            }
+            // 2. The moving light, drawn over the rim.
             for (const layer of GLOW_LAYERS) {
                 cr.setLineWidth(layer.width);
                 for (let i = 0; i < pts.length; i++) {
                     const u = i / pts.length;
+                    const strength = intensityAt(frame, u);
+                    if (strength < GLOW_MIN_VISIBLE) continue;
                     const [r, g, b] = colorAt(u + frame.hueShift);
-                    cr.setSourceRGBA(r, g, b, layer.alpha * intensityAt(frame, u));
+                    cr.setSourceRGBA(r, g, b, layer.alpha * strength);
                     const next = pts[(i + 1) % pts.length];
                     cr.moveTo(pts[i][0], pts[i][1]);
                     cr.lineTo(next[0], next[1]);

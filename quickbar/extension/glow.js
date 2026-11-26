@@ -11,11 +11,19 @@ export const GOOGLE_COLORS = Object.freeze([
     [52, 168, 83], // green
 ]);
 
-/** Light behaviour for each thing FRIDAY can be doing. lapSeconds is how long one trip around the card takes. */
+/**
+ * Light behaviour for each thing FRIDAY can be doing. The light is a few bright comets that run around
+ * the edge, each with a tail that fades behind it, over a faint glow that is always there.
+ *   lapSeconds  time for one trip around the card
+ *   heads       how many comets, spread evenly around the card
+ *   tail        how far behind a comet its tail reaches, as a fraction of the way round
+ *   base        brightness of the faint glow between comets (0..1)
+ *   breathe     how much the whole light pulses (0 = steady)
+ */
 export const GLOW_MODES = Object.freeze({
-    idle: {lapSeconds: 9, base: 0.5, peak: 0.95, width: 0.2, breathe: 0},
-    thinking: {lapSeconds: 1.8, base: 0.75, peak: 1, width: 0.3, breathe: 0},
-    speaking: {lapSeconds: 5, base: 0.65, peak: 1, width: 0.3, breathe: 0.25},
+    idle: {lapSeconds: 4.5, heads: 2, tail: 0.16, base: 0.07, breathe: 0},
+    thinking: {lapSeconds: 1.5, heads: 3, tail: 0.24, base: 0.16, breathe: 0},
+    speaking: {lapSeconds: 3, heads: 2, tail: 0.22, base: 0.14, breathe: 0.3},
 });
 
 /**
@@ -77,25 +85,28 @@ export function colorAt(u) {
     ];
 }
 
-/** Bright spot centred on `head` (a fraction of the perimeter), falling off both ways. 1 at the centre, near 0 far away. */
-export function spot(u, head, width) {
-    let d = Math.abs(u - head) % 1;
-    if (d > 0.5) d = 1 - d;
-    return Math.exp(-(d * d) / (2 * width * width));
+/** A comet's brightness at fraction u of the perimeter: 1 at its head, fading behind it, nothing ahead of it. */
+export function comet(u, head, tail) {
+    const behind = (((head - u) % 1) + 1) % 1; // 0 at the head, growing as you move back along its path
+    return Math.exp(-behind / tail);
 }
 
 /**
- * Everything the painter needs for one frame at time t (seconds): where the bright spot is and how
- * strong the light is overall.
+ * Everything the painter needs for one frame at time t (seconds): where the comets are and how strong
+ * the light is overall.
  */
 export function glowFrame(mode, t) {
     const m = GLOW_MODES[mode] ?? GLOW_MODES.idle;
-    const head = ((t / m.lapSeconds) % 1 + 1) % 1;
+    const lead = ((t / m.lapSeconds) % 1 + 1) % 1;
+    const heads = [];
+    for (let i = 0; i < m.heads; i++) heads.push((lead + i / m.heads) % 1);
     const breathe = m.breathe ? 1 - m.breathe * (0.5 + 0.5 * Math.sin(t * 2 * Math.PI * 1.1)) : 1;
-    return {head, width: m.width, base: m.base, peak: m.peak, gain: breathe, hueShift: t * 0.04};
+    return {heads, tail: m.tail, base: m.base, gain: breathe, hueShift: t * 0.06};
 }
 
 /** Brightness (0..1) of the light at fraction u of the perimeter for a frame from glowFrame. */
 export function intensityAt(frame, u) {
-    return frame.gain * (frame.base + (frame.peak - frame.base) * spot(u, frame.head, frame.width));
+    let strongest = 0;
+    for (const head of frame.heads) strongest = Math.max(strongest, comet(u, head, frame.tail));
+    return frame.gain * Math.min(1, frame.base + (1 - frame.base) * strongest);
 }

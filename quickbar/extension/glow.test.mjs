@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {GLOW_MODES, colorAt, glowFrame, intensityAt, roundedRectPoints, spot} from './glow.js';
+import {GLOW_MODES, colorAt, comet, glowFrame, intensityAt, roundedRectPoints} from './glow.js';
 
 describe('roundedRectPoints', () => {
     it('returns the requested number of points, all on or inside the box', () => {
@@ -55,20 +55,38 @@ describe('colorAt', () => {
 });
 
 describe('light', () => {
-    it('is brightest at the head and wraps around the perimeter', () => {
-        expect(spot(0.5, 0.5, 0.2)).toBeCloseTo(1);
-        expect(spot(0.02, 0.98, 0.2)).toBeGreaterThan(spot(0.5, 0.98, 0.2));
+    it('a comet is brightest at its head, fades behind it and is dark ahead of it', () => {
+        expect(comet(0.5, 0.5, 0.2)).toBeCloseTo(1);
+        expect(comet(0.45, 0.5, 0.2)).toBeGreaterThan(comet(0.3, 0.5, 0.2)); // behind the head
+        expect(comet(0.55, 0.5, 0.2)).toBeLessThan(0.02); // just ahead of the head
     });
 
-    it('thinking runs faster and brighter than idle', () => {
+    it('a comet wraps around the perimeter', () => {
+        expect(comet(0.98, 0.02, 0.2)).toBeGreaterThan(comet(0.5, 0.02, 0.2));
+    });
+
+    it('thinking runs faster and with more comets than idle', () => {
         expect(GLOW_MODES.thinking.lapSeconds).toBeLessThan(GLOW_MODES.idle.lapSeconds);
-        expect(GLOW_MODES.thinking.base).toBeGreaterThan(GLOW_MODES.idle.base);
+        expect(GLOW_MODES.thinking.heads).toBeGreaterThanOrEqual(GLOW_MODES.idle.heads);
     });
 
-    it('moves the head over time and never leaves 0..1', () => {
-        const a = glowFrame('idle', 0);
-        const b = glowFrame('idle', 2);
-        expect(b.head).toBeGreaterThan(a.head);
+    it('spreads the comets evenly and moves them over time', () => {
+        const a = glowFrame('thinking', 0);
+        const b = glowFrame('thinking', 0.4);
+        expect(a.heads).toHaveLength(GLOW_MODES.thinking.heads);
+        expect(b.heads[0]).toBeGreaterThan(a.heads[0]);
+        expect((a.heads[1] - a.heads[0] + 1) % 1).toBeCloseTo(1 / GLOW_MODES.thinking.heads);
+    });
+
+    it('is mostly dark between comets so the movement is easy to see', () => {
+        const f = glowFrame('idle', 1);
+        const values = [];
+        for (let u = 0; u < 1; u += 0.02) values.push(intensityAt(f, u));
+        expect(Math.max(...values)).toBeGreaterThan(0.9);
+        expect(values.filter(v => v < 0.2).length).toBeGreaterThan(values.length * 0.3);
+    });
+
+    it('stays within 0..1 in every mode', () => {
         for (const mode of Object.keys(GLOW_MODES)) {
             for (let t = 0; t < 12; t += 0.3) {
                 const f = glowFrame(mode, t);

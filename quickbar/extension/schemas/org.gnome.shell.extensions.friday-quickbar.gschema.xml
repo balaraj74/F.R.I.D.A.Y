@@ -34,7 +34,7 @@
       <summary>All the direction changes must happen within this many milliseconds</summary>
     </key>
     <key name="shake-debug" type="b">
-      <default>true</default>
+      <default>false</default>
       <summary>Log what the shake detector sees to the journal while the mouse is moving fast</summary>
     </key>
   </schema>
