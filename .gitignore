@@ -97,8 +97,6 @@ voice-samples/
 /eval_results/
 /eval_tasks.jsonl
 /eval_runner.py
-# Large 3D asset with unknown licence
-friday-hud/public/models/
 
 # Installer templates are generic and must be published
 !/templates/friday-workspace/IDENTITY.md
