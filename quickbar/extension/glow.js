@@ -3,13 +3,31 @@
 // Pure functions with no GNOME imports, so they run in the shell and in Node tests. The bar draws
 // the result with Cairo; nothing here depends on how it is painted.
 
-/** Google's four colours, in the order the light passes through them. */
-export const GOOGLE_COLORS = Object.freeze([
-    [66, 133, 244], // blue
-    [234, 67, 53], // red
-    [251, 188, 4], // yellow
-    [52, 168, 83], // green
-]);
+/**
+ * FRIDAY's own colours, taken from the reactor: cool cyan when she is calm or speaking, sunlight red and
+ * amber while she thinks. Each mood blends four colours around the card, the way Google's AI light blends
+ * its own four, but in FRIDAY's hues.
+ */
+export const GLOW_PALETTES = Object.freeze({
+    idle: [
+        [0, 229, 255], // reactor cyan
+        [56, 189, 248], // sky
+        [2, 132, 199], // deep blue
+        [92, 242, 255], // ice
+    ],
+    thinking: [
+        [255, 77, 46], // sunlight red
+        [255, 181, 71], // amber
+        [255, 158, 61], // orange
+        [194, 38, 27], // deep red
+    ],
+    speaking: [
+        [125, 211, 252], // light blue
+        [0, 229, 255], // reactor cyan
+        [255, 181, 71], // amber
+        [230, 251, 255], // white-blue
+    ],
+});
 
 /**
  * Light behaviour for each thing FRIDAY can be doing. The light is a few bright comets that run around
@@ -68,21 +86,30 @@ export function roundedRectPoints(w, h, r, n) {
     return pts;
 }
 
-/** Smooth colour around the palette; u wraps, so 0 and 1 are the same colour. Components are 0..1. */
-export function colorAt(u) {
+/**
+ * Smooth colour around a palette (a mood name or a list of [r, g, b]); u wraps, so 0 and 1 are the same
+ * colour. Components are 0..1.
+ */
+export function colorAt(u, palette = 'idle') {
     if (!Number.isFinite(u)) u = 0;
-    const n = GOOGLE_COLORS.length;
+    const colors = typeof palette === 'string' ? (GLOW_PALETTES[palette] ?? GLOW_PALETTES.idle) : palette;
+    const n = colors.length;
     const p = (((u % 1) + 1) % 1) * n;
     const i = Math.floor(p) % n;
     const f = p - Math.floor(p);
     const t = f * f * (3 - 2 * f); // ease, so each colour holds a little before it blends
-    const a = GOOGLE_COLORS[i];
-    const b = GOOGLE_COLORS[(i + 1) % n];
+    const a = colors[i];
+    const b = colors[(i + 1) % n];
     return [
         (a[0] + (b[0] - a[0]) * t) / 255,
         (a[1] + (b[1] - a[1]) * t) / 255,
         (a[2] + (b[2] - a[2]) * t) / 255,
     ];
+}
+
+/** Mixes two colours from colorAt; k = 0 gives a, k = 1 gives b. Used to fade between moods. */
+export function mixColors(a, b, k) {
+    return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 }
 
 /** A comet's brightness at fraction u of the perimeter: 1 at its head, fading behind it, nothing ahead of it. */

@@ -8,7 +8,7 @@ import Shell from 'gi://Shell';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-import {colorAt, glowFrame, intensityAt, roundedRectPoints} from './glow.js';
+import {colorAt, glowFrame, intensityAt, mixColors, roundedRectPoints} from './glow.js';
 
 const CARD_WIDTH = 500;
 const CARD_RADIUS = 26;
@@ -31,6 +31,7 @@ const GLOW_LAYERS = [
     {width: 1.7, alpha: 1},
 ];
 const GLOW_OUTSET = 0.5;
+const MODE_FADE_US = 500000;
 // Segments dimmer than this are skipped: most of the ring is dark between comets, and it saves work.
 const GLOW_MIN_VISIBLE = 0.03;
 // The glass rim: bright where light would hit the top-left, fading toward the bottom-right.
@@ -67,6 +68,8 @@ export class QuickBar {
         this._card = null;
         this._recording = false;
         this._mode = 'idle';
+        this._prevMode = 'idle';
+        this._modeChangedAt = 0;
         this._glowTimer = 0;
         this._focusId = 0;
         this._outline = null;
@@ -315,7 +318,10 @@ export class QuickBar {
                 this._outlineKey = key;
             }
             const pts = this._outline;
-            const frame = glowFrame(this._mode, (GLib.get_monotonic_time() - this._t0) / 1e6);
+            const nowUs = GLib.get_monotonic_time();
+            const frame = glowFrame(this._mode, (nowUs - this._t0) / 1e6);
+            // Colours fade from the old mood to the new one over about half a second.
+            const fade = Math.min(1, Math.max(0, (nowUs - this._modeChangedAt) / MODE_FADE_US));
             cr.translate(PAD - GLOW_OUTSET, PAD - GLOW_OUTSET);
             cr.setOperator(CAIRO_OPERATOR_SOURCE);
             cr.setLineCap(CAIRO_LINE_CAP_ROUND);
@@ -354,7 +360,8 @@ export class QuickBar {
                     const u = i / pts.length;
                     const strength = intensityAt(frame, u);
                     if (strength < GLOW_MIN_VISIBLE) continue;
-                    const [r, g, b] = colorAt(u + frame.hueShift);
+                    const now = colorAt(u + frame.hueShift, this._mode);
+                    const [r, g, b] = fade < 1 ? mixColors(colorAt(u + frame.hueShift, this._prevMode), now, fade) : now;
                     cr.setSourceRGBA(r, g, b, layer.alpha * strength);
                     const next = pts[(i + 1) % pts.length];
                     cr.moveTo(pts[i][0], pts[i][1]);
@@ -368,7 +375,10 @@ export class QuickBar {
 
     /** idle | thinking | speaking: changes how the light moves. */
     setActivity(mode) {
+        if (mode === this._mode) return;
+        this._prevMode = this._mode;
         this._mode = mode;
+        this._modeChangedAt = GLib.get_monotonic_time();
     }
 
     // ---- input ----

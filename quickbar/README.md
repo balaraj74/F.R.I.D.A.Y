@@ -28,9 +28,10 @@ It is an overlay, not a dialog. It floats above your windows next to the pointer
 blocked: you can click, scroll and type in the windows behind it. It stays open until you press Esc or
 the close button. Click the bar to type in it; click a window and your typing goes there again.
 
-The card is frosted glass (the background behind it is blurred) with a light that runs around its edge,
-in Google's four colours. The light is slow while idle, fast while FRIDAY is thinking, and pulses while
-she speaks.
+The card is frosted glass (the background behind it is blurred) with a fine rim and a thin light that
+runs around its edge as a few comets. The light uses FRIDAY's reactor colours: cool cyan and blue while
+she is idle, sunlight red and amber while she thinks, cyan with a touch of amber while she speaks. It runs
+slowly when idle, fast while thinking, and pulses while she speaks.
 
 ## Always on (recommended)
 

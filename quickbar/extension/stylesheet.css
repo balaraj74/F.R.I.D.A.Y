@@ -36,7 +36,7 @@
 }
 .fqb-icon-btn:hover, .fqb-icon-btn:focus { background-color: rgba(255, 255, 255, 0.15); color: #ffffff; }
 .fqb-mic { background-color: rgba(255, 255, 255, 0.09); border: 1px solid rgba(255, 255, 255, 0.16); padding: 8px 10px; }
-.fqb-mic:checked { background-color: rgba(234, 67, 53, 0.9); border-color: rgba(255, 255, 255, 0.5); color: #ffffff; }
+.fqb-mic:checked { background-color: rgba(255, 77, 46, 0.92); border-color: rgba(255, 255, 255, 0.5); color: #ffffff; }
 .fqb-icon { icon-size: 16px; }
 .fqb-scroll { padding-top: 4px; }
 .fqb-question { color: rgba(255, 255, 255, 0.62); font-size: 12px; padding-bottom: 6px; }

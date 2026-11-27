@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {GLOW_MODES, colorAt, comet, glowFrame, intensityAt, roundedRectPoints} from './glow.js';
+import {GLOW_MODES, GLOW_PALETTES, colorAt, comet, glowFrame, intensityAt, mixColors, roundedRectPoints} from './glow.js';
 
 describe('roundedRectPoints', () => {
     it('returns the requested number of points, all on or inside the box', () => {
@@ -36,21 +36,46 @@ describe('roundedRectPoints', () => {
 });
 
 describe('colorAt', () => {
-    it('is the same at 0 and 1 and stays in range', () => {
-        expect(colorAt(0)).toEqual(colorAt(1));
-        for (let u = -1; u < 2; u += 0.07) {
-            for (const c of colorAt(u)) {
-                expect(c).toBeGreaterThanOrEqual(0);
-                expect(c).toBeLessThanOrEqual(1);
+    it('is the same at 0 and 1 and stays in range, for every mood', () => {
+        for (const mood of Object.keys(GLOW_PALETTES)) {
+            expect(colorAt(0, mood)).toEqual(colorAt(1, mood));
+            for (let u = -1; u < 2; u += 0.07) {
+                for (const c of colorAt(u, mood)) {
+                    expect(c).toBeGreaterThanOrEqual(0);
+                    expect(c).toBeLessThanOrEqual(1);
+                }
             }
         }
     });
 
-    it('starts blue and reaches red a quarter of the way round', () => {
-        const [r, , b] = colorAt(0);
-        expect(b).toBeGreaterThan(r);
-        const [r2, , b2] = colorAt(0.25);
-        expect(r2).toBeGreaterThan(b2);
+    it('is cool while idle: cyan and blue, never red', () => {
+        for (let u = 0; u < 1; u += 0.05) {
+            const [r, , b] = colorAt(u, 'idle');
+            expect(b).toBeGreaterThan(r);
+        }
+    });
+
+    it('is warm while thinking, like the reactor: red and amber, never blue', () => {
+        for (let u = 0; u < 1; u += 0.05) {
+            const [r, , b] = colorAt(u, 'thinking');
+            expect(r).toBeGreaterThan(b);
+        }
+    });
+
+    it('starts on the first colour of the palette', () => {
+        const [r, g, b] = colorAt(0, 'idle');
+        expect([r * 255, g * 255, b * 255].map(Math.round)).toEqual(GLOW_PALETTES.idle[0]);
+    });
+
+    it('falls back to the idle palette for an unknown mood and survives bad input', () => {
+        expect(colorAt(0.3, 'nope')).toEqual(colorAt(0.3, 'idle'));
+        expect(colorAt(Number.NaN, 'idle')).toEqual(colorAt(0, 'idle'));
+    });
+
+    it('mixes two colours', () => {
+        expect(mixColors([0, 0, 0], [1, 1, 1], 0)).toEqual([0, 0, 0]);
+        expect(mixColors([0, 0, 0], [1, 1, 1], 1)).toEqual([1, 1, 1]);
+        expect(mixColors([0, 0, 0], [1, 1, 1], 0.5)).toEqual([0.5, 0.5, 0.5]);
     });
 });
 

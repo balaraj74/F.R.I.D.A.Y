@@ -1,0 +1,2 @@
+dbus[31153]: Unable to set up transient service directory: XDG_RUNTIME_DIR "/tmp/friday-scratch/hs/runtime" not available: No such file or directory
+dbus-run-session: failed to exec './session.sh': No such file or directory
