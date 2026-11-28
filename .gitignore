@@ -67,6 +67,8 @@ apps/ios/*.mobileprovision
 .vscode/
 IDENTITY.md
 USER.md
+# workspace templates are shared, not personal
+!templates/friday-workspace/**/*.md
 .tgz
 
 # local tooling

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {describe, expect, it, vi} from 'vitest';
 import {EDGE_DEFAULT_VOICE, edgeTtsArgs, edgeTtsBinary, supertonicRequest, synthesize} from './tts.mjs';
 
@@ -20,7 +21,7 @@ describe('edge voice', () => {
     const win = edgeTtsBinary({platform: 'win32', home: 'C:\\Users\\a', exists: () => true});
     expect(win).toBe('C:\\Users\\a\\.friday\\voice-venv\\Scripts\\edge-tts.exe');
     expect(edgeTtsBinary({platform: 'win32', home: 'C:\\Users\\a', exists: () => false})).toBe('edge-tts');
-    expect(edgeTtsBinary({platform: 'linux', home: '/h', exists: () => true})).toBe('/h/.friday/voice-venv/bin/edge-tts');
+    expect(edgeTtsBinary({platform: 'linux', home: '/h', exists: () => true})).toBe(path.join('/h', '.friday', 'voice-venv', 'bin', 'edge-tts'));
   });
   it('passes the text as one argument, never through a shell', () => {
     const evil = 'hi $(calc) `x` "; rm';

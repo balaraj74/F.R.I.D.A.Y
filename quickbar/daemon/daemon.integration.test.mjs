@@ -121,7 +121,8 @@ afterAll(() => {
   fs.rmSync(dir, {recursive: true, force: true});
 });
 
-describe('quick bar daemon', () => {
+// The GNOME daemon is Linux-only (unix socket, systemd paths).
+describe.skipIf(process.platform === 'win32')('quick bar daemon', () => {
   it('sends the question with the screenshot, streams the answer, and does not resend the picture', async () => {
     const png = path.join(dir, 'shot.png');
     execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=1920x1080:rate=1', '-frames:v', '1', png]);

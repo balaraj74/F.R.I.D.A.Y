@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {describe, expect, it} from 'vitest';
 import {fridayPaths} from './paths.mjs';
 import {parseControl, parseOwnConfig, parseSetup, registerFirstFree, resolveSpeechMode, shortcutCandidates} from './settings.mjs';
@@ -63,9 +64,9 @@ describe('shortcuts', () => {
 describe('fridayPaths', () => {
   it('builds the contract paths under .friday', () => {
     const p = fridayPaths('/h');
-    expect(p.setup).toBe('/h/.friday/setup.json');
-    expect(p.control).toBe('/h/.friday/run/control.json');
-    expect(p.stop).toBe('/h/.friday/run/stop');
-    expect(p.voiceRuntime).toBe('/h/.friday/voice/runtime.json');
+    expect(p.setup).toBe(path.join('/h', '.friday', 'setup.json'));
+    expect(p.control).toBe(path.join('/h', '.friday', 'run', 'control.json'));
+    expect(p.stop).toBe(path.join('/h', '.friday', 'run', 'stop'));
+    expect(p.voiceRuntime).toBe(path.join('/h', '.friday', 'voice', 'runtime.json'));
   });
 });
