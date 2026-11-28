@@ -111,7 +111,7 @@ def test_consent(tmp_path):
     assert not f.consented()
     (tmp_path / "setup.json").write_text(json.dumps({"computerControl": {"consented": "yes"}}))
     assert not f.consented()
-    (tmp_path / "setup.json").write_text('\ufeff{"computerControl": {"consented": true}}')
+    (tmp_path / "setup.json").write_text('\ufeff{"computerControl": {"consented": true}}', encoding="utf-8")
     assert f.consented()
 
 
@@ -249,5 +249,7 @@ def test_grab_with_stubbed_mss(monkeypatch):
 
 def test_module_imports_without_windows():
     assert wb.MAX_TYPE == 2000 and wb.SETTLE_S == 0.45
+    if sys.platform.startswith("win"):
+        return  # the guard below only applies off Windows
     with pytest.raises(wb.WinControlError, match="only runs on Windows"):
         _ = wb.Controller(files=wb.ControlFiles(Path("/nonexistent"))).api
