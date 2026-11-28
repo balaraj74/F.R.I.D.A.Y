@@ -10,13 +10,15 @@ const crypto = require('crypto');
 const { execSync, exec, execFile, spawn } = require('child_process');
 const { createVoiceControl } = require('./voice-control.cjs');
 const { createLocalVoice } = require('./local-voice.cjs');
+const plat = require('./platform.cjs');
+const IS_WIN = process.platform === 'win32';
 
 let voiceControl = null;
 let localVoice = null;
 let stopWatchdog = () => {};
 const PROXY_VERSION = '2.8.7';
 // Neural voice: prefer the private voice venv (friday-hud/voice/setup.sh), else PATH.
-const EDGE_TTS_VENV = path.join(os.homedir(), '.friday', 'voice-venv', 'bin', 'edge-tts');
+const EDGE_TTS_VENV = plat.venvBin(path.join(os.homedir(), '.friday', 'voice-venv'), 'edge-tts');
 const EDGE_TTS_BIN = fs.existsSync(EDGE_TTS_VENV) ? EDGE_TTS_VENV : 'edge-tts';
 
 // Gemini key for speech-to-text: env var, or a single line in ~/.friday/credentials/gemini_api_key.
@@ -96,7 +98,7 @@ function getDiskPercent() {
   lastDiskCheck = now;
   try {
     if (typeof fs.statfsSync === 'function') {
-      const stats = fs.statfsSync('/');
+      const stats = fs.statfsSync(IS_WIN ? path.parse(os.homedir()).root : '/');
       const total = stats.blocks * stats.bsize;
       const free = stats.bavail * stats.bsize; // space available to the user, matching `df`
       cachedDisk = Math.round(((total - free) / total) * 100);
@@ -110,6 +112,17 @@ function getGpuPercent() {
   if (now - lastGpuCheck < 10000) return cachedGpu;
   lastGpuCheck = now;
 
+  if (IS_WIN) {
+    // Windows: nvidia-smi ships with the driver; no NVIDIA GPU means no GPU gauge.
+    try {
+      const out = require('child_process').execFileSync('nvidia-smi', ['--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'], { encoding: 'utf8', timeout: 1500, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      const parsed = parseInt(out, 10);
+      cachedGpu = Number.isFinite(parsed) ? parsed : null;
+    } catch {
+      cachedGpu = null;
+    }
+    return cachedGpu;
+  }
   try {
     // Check if NVIDIA card is asleep (suspended) to avoid waking it and wasting battery
     const dgpuStatusPath = '/sys/class/drm/card2/device/power/runtime_status';
@@ -135,7 +148,9 @@ function getSystemStats() {
   const cpu = getCpuPercent();
   // MemAvailable counts reclaimable cache as free (what `free -h` calls "available").
   let ram = null;
-  try {
+  if (IS_WIN) {
+    ram = Math.round(((os.totalmem() - os.freemem()) / os.totalmem()) * 100);
+  } else try {
     const mem = fs.readFileSync('/proc/meminfo', 'utf8');
     const total = Number((/MemTotal:\s+(\d+)/.exec(mem) || [])[1]);
     const avail = Number((/MemAvailable:\s+(\d+)/.exec(mem) || [])[1]);
@@ -161,7 +176,7 @@ function getSystemStats() {
     gpu,
     battery,
     uptime: Math.floor(os.uptime()),
-    platform: 'linux',
+    platform: IS_WIN ? 'win32' : 'linux',
     hostname: os.hostname(),
     loadAvg: Number(os.loadavg()[0].toFixed(2))
   };
@@ -191,6 +206,7 @@ function pinWindowToDesktop(win) {
   try {
     win.setAlwaysOnTop(false);
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: false });
+    if (IS_WIN) return; // no wmctrl on Windows: the plain window flags above are all there is
     // Pin to X11 desktop layer, sticky on all workspaces, skip dock/taskbar and alt-tab
     execSync("wmctrl -r 'FRIDAY — YOUR PERSONAL AGI' -b add,sticky 2>/dev/null || true");
     execSync("wmctrl -r 'FRIDAY — YOUR PERSONAL AGI' -b remove,below 2>/dev/null || true");
@@ -438,7 +454,7 @@ app.whenReady().then(() => {
         pinWindowToDesktop(mainWindow);
       } else {
         mainWindow.setAlwaysOnTop(true);
-        execSync("wmctrl -r 'FRIDAY — YOUR PERSONAL AGI' -b remove,below 2>/dev/null || true");
+        if (!IS_WIN) execSync("wmctrl -r 'FRIDAY — YOUR PERSONAL AGI' -b remove,below 2>/dev/null || true");
       }
       return true;
     } catch (err) {
@@ -608,10 +624,35 @@ app.whenReady().then(() => {
   };
   // Always-on mode (scripts/always-on.sh): systemd keeps the proxy, gateway and voice running, so
   // the HUD only asks systemd to start them and never stops them when it closes.
+  // Windows: the supervisor (src/winservice, Task Scheduler) plays systemd's part.
   const systemctlUser = (...args) =>
-    new Promise((resolve) => execFile('systemctl', ['--user', ...args], { timeout: 20000 }, (err) => resolve(!err)));
+    new Promise((resolve) => {
+      if (IS_WIN) {
+        if (args[0] !== 'start') return resolve(true); // stopping is done by ending the port's owner
+        return execFile('node', [path.join(repoRootDir, 'scripts', 'friday-service.mjs'), 'start'], { timeout: 20000, windowsHide: true }, (err) => resolve(!err));
+      }
+      execFile('systemctl', ['--user', ...args], { timeout: 20000 }, (err) => resolve(!err));
+    });
+  const winLog = (name) => {
+    const dir = path.join(os.homedir(), '.friday', 'logs');
+    try { fs.mkdirSync(dir, { recursive: true }); return fs.openSync(path.join(dir, name), 'a'); } catch { return 'ignore'; }
+  };
+  // Windows replacement for the tmux sessions: a hidden, detached child logging to ~/.friday/logs.
+  const startDetached = (cmd, args, logName, opts = {}) => {
+    const fd = winLog(logName);
+    const env = { ...process.env };
+    delete env.ELECTRON_RUN_AS_NODE;
+    try {
+      plat.spawnHidden(cmd, args, { cwd: repoRootDir, env, stdio: ['ignore', fd, fd], ...opts });
+      return true;
+    } catch (err) {
+      console.warn('[FRIDAY] could not start', cmd, err?.message || err);
+      return false;
+    }
+  };
   const startTmux = (name, command) =>
     new Promise((resolve) => {
+      if (IS_WIN) return resolve(false); // no tmux on Windows: callers use startDetached
       execFile('tmux', ['kill-session', '-t', name], () => {
         execFile('tmux', ['new-session', '-d', '-s', name, command], (err) => resolve(!err));
       });
@@ -627,6 +668,13 @@ app.whenReady().then(() => {
     }
     // Pinned: @latest would execute whatever was last published to npm.
     // Raise the proxy's hard-coded 16k Gemini output cap first (re-applied after npx re-downloads).
+    if (IS_WIN) {
+      startDetached('node', [path.join(repoRootDir, 'scripts', 'patch-antigravity-proxy.mjs'), PROXY_VERSION], 'proxy-patch.log');
+      await new Promise((r) => setTimeout(r, 1500));
+      startDetached('npx.cmd', ['-y', `antigravity-claude-proxy@${PROXY_VERSION}`, 'start', '--log'], 'proxy.log', { shell: true });
+      const winOk = await waitFor(brainAnswers, 120000);
+      return winOk ? { ok: winOk, ms: Date.now() - started } : { ok: winOk, error: 'The reasoning engine did not answer within 2 minutes (see ~/.friday/logs/proxy.log).' };
+    }
     const patchScript = path.join(repoRootDir, 'scripts', 'patch-antigravity-proxy.sh');
     await startTmux(
       'friday-proxy',
@@ -644,6 +692,11 @@ app.whenReady().then(() => {
       await systemctlUser('start', 'friday-gateway.service');
       const up = await waitFor(() => checkGatewayPort(cfg.port), 90000);
       return up ? { ok: up, ms: Date.now() - started } : { ok: up, error: 'The gateway did not start within 90 s (friday-gateway.service).' };
+    }
+    if (IS_WIN) {
+      startDetached('node', [path.join(repoRootDir, 'friday.mjs'), 'gateway', '--force'], 'gateway.log');
+      const winOk = await waitFor(() => checkGatewayPort(cfg.port), 90000);
+      return winOk ? { ok: winOk, ms: Date.now() - started } : { ok: winOk, error: 'The gateway did not start within 90 s (see ~/.friday/logs/gateway.log).' };
     }
     await startTmux('friday', `cd '${repoRootDir}' && bash -l -c 'pnpm friday gateway --force'`);
     const ok = await waitFor(() => checkGatewayPort(cfg.port), 90000);
@@ -707,8 +760,9 @@ app.whenReady().then(() => {
       const stopBin = path.join(os.homedir(), '.local', 'bin', 'friday-stop');
       if (isAlwaysOn()) {
         // Explicit stop from the HUD: stop the service too, or systemd would bring it straight back.
-        await systemctlUser('stop', 'friday-gateway.service');
-      } else if (fs.existsSync(stopBin)) {
+        if (IS_WIN) await stopPids(await pidsOnPort(getGatewayConfig().port), 8000);
+        else await systemctlUser('stop', 'friday-gateway.service');
+      } else if (!IS_WIN && fs.existsSync(stopBin)) {
         execSync(`bash "${stopBin}" 2>/dev/null || true`);
       } else {
         // By port and session, as on shutdown (a `pkill -f` pattern would match its own shell).
@@ -732,7 +786,8 @@ app.whenReady().then(() => {
         return resolve(cachedMediaStatus);
       }
       lastMediaFetchTime = now;
-
+      // No MPRIS on Windows: report "no media" so the HUD hides the element.
+      if (IS_WIN) return resolve(cachedMediaStatus);
       exec(
         "playerctl metadata --format '{{status}}<delim>{{playerName}}<delim>{{artist}}<delim>{{title}}<delim>{{mpris:artUrl}}<delim>{{position}}<delim>{{mpris:length}}' 2>/dev/null",
         { timeout: 750 },
@@ -779,6 +834,7 @@ app.whenReady().then(() => {
       if (cachedMediaStatus.active) {
         cachedMediaStatus.isPlaying = !cachedMediaStatus.isPlaying;
       }
+      if (IS_WIN) return resolve(false);
       exec('playerctl play-pause 2>/dev/null || true', () => {
         lastMediaFetchTime = 0;
         resolve(true);
@@ -788,6 +844,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('media:next', () => {
     return new Promise((resolve) => {
+      if (IS_WIN) return resolve(false);
       exec('playerctl next 2>/dev/null || true', () => {
         lastMediaFetchTime = 0;
         resolve(true);
@@ -797,6 +854,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('media:previous', () => {
     return new Promise((resolve) => {
+      if (IS_WIN) return resolve(false);
       exec('playerctl previous 2>/dev/null || true', () => {
         lastMediaFetchTime = 0;
         resolve(true);
@@ -956,8 +1014,8 @@ app.whenReady().then(() => {
 
   // Autonomous Assistant & Google Workspace IPC
   // These scripts need the Google client libraries, which live in the Google MCP venv.
-  const googleVenv = path.join(os.homedir(), '.friday', 'mcp', 'google', 'venv', 'bin', 'python');
-  const GOOGLE_PYTHON = fs.existsSync(googleVenv) ? googleVenv : 'python3';
+  const googleVenv = plat.venvPython(path.join(os.homedir(), '.friday', 'mcp', 'google', 'venv'));
+  const GOOGLE_PYTHON = fs.existsSync(googleVenv) ? googleVenv : plat.systemPython();
   const gwScript = path.join(os.homedir(), '.friday', 'services', 'google_workspace.py');
   const plannerScript = path.join(os.homedir(), '.friday', 'services', 'assistant_planner.py');
 
@@ -1221,7 +1279,7 @@ app.whenReady().then(() => {
   ipcMain.handle('memory:query', async (event, query) => {
     return new Promise((resolve) => {
       const sanitized = (query || '');
-      execFile('python3', [memoryScript, 'query', sanitized], { timeout: 5000 }, (err, stdout) => {
+      execFile(plat.systemPython(), [memoryScript, 'query', sanitized], { timeout: 5000 }, (err, stdout) => {
         if (err) return resolve({ latency_ms: 0, matched_nodes: [], associations: [] });
         try {
           resolve(JSON.parse(stdout.trim()));
@@ -1235,7 +1293,7 @@ app.whenReady().then(() => {
   // Helper for Python service calls with JSON IPC
   const callPythonService = (scriptPath, action, args = {}, timeoutMs = 30000) => {
     return new Promise((resolve) => {
-      execFile('python3', [scriptPath, String(action), JSON.stringify(args)], { timeout: timeoutMs }, (err, stdout, stderr) => {
+      execFile(plat.systemPython(), [scriptPath, String(action), JSON.stringify(args)], { timeout: timeoutMs }, (err, stdout, stderr) => {
         if (err) return resolve({ success: false, error: err.message, stderr });
         try {
           resolve(JSON.parse(stdout.trim()));
@@ -1306,6 +1364,7 @@ app.whenReady().then(() => {
   ipcMain.handle('knowledge:arxiv', async (event, query, maxResults) => callPythonService(knowledgeScript, 'arxiv', { query, max_results: maxResults || 5 }));
   ipcMain.handle('knowledge:analyze-pdf', async (event, path, maxPages) => callPythonService(knowledgeScript, 'pdf', { path, max_pages: maxPages || 20 }));
 
+  require('./setup-ipc.cjs').register({ ipcMain, shell, getWindow: () => mainWindow, repoRoot: path.join(__dirname, '..', '..') });
   createWindow();
 
   // Wake word, live transcript and push-to-talk socket.
@@ -1325,12 +1384,7 @@ app.whenReady().then(() => {
 
 /** PIDs listening on a local TCP port (via ss). */
 function pidsOnPort(port) {
-  return new Promise((resolve) => {
-    execFile('ss', ['-ltnpH', `sport = :${port}`], { timeout: 3000 }, (err, stdout) => {
-      if (err) return resolve([]);
-      resolve([...new Set([...String(stdout).matchAll(/pid=(\d+)/g)].map((m) => Number(m[1])))]);
-    });
-  });
+  return plat.findPidByPort(port);
 }
 
 const isAlive = (pid) => {
@@ -1343,6 +1397,11 @@ const isAlive = (pid) => {
 };
 
 async function stopPids(pids, graceMs) {
+  if (IS_WIN) {
+    // No SIGTERM on Windows: end the whole process tree.
+    for (const pid of pids) await plat.killTree(pid);
+    return;
+  }
   for (const pid of pids) {
     try { process.kill(pid, 'SIGTERM'); } catch {}
   }
@@ -1353,10 +1412,21 @@ async function stopPids(pids, graceMs) {
   }
 }
 
-const killTmuxSession = (name) => new Promise((resolve) => execFile('tmux', ['kill-session', '-t', name], () => resolve()));
+const killTmuxSession = (name) => new Promise((resolve) => IS_WIN ? resolve() : execFile('tmux', ['kill-session', '-t', name], () => resolve()));
 
 /** True when systemd keeps FRIDAY running on its own (marker written by scripts/always-on.sh). */
 function isAlwaysOn() {
+  if (IS_WIN) {
+    // Supervisor-managed: run/status.json exists and the supervisor process is alive.
+    try {
+      const run = path.join(os.homedir(), '.friday', 'run');
+      if (!fs.existsSync(path.join(run, 'status.json'))) return false;
+      const pidFile = path.join(run, 'supervisor.pid');
+      return !fs.existsSync(pidFile) || plat.isPidAlive(Number(fs.readFileSync(pidFile, 'utf8')));
+    } catch {
+      return false;
+    }
+  }
   return fs.existsSync(path.join(os.homedir(), '.friday', 'always-on'));
 }
 async function shutdownFriday() {

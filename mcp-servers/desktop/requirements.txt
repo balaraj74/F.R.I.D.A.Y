@@ -1,0 +1,4 @@
+# Windows-only deps for the desktop MCP server (Linux uses GNOME portals via system PyGObject/Pillow).
+mcp
+mss>=9.0; sys_platform == "win32"
+Pillow>=10.0; sys_platform == "win32"

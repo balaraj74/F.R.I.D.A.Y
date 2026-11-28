@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src blob: data:">
+<title>FRIDAY Quick Bar</title>
+<link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+<div id="root" class="root">
+  <div id="card" class="card">
+    <div class="header">
+      <span class="title">FRIDAY</span>
+      <span id="status" class="status"></span>
+      <button id="speaker" class="icon-btn" title="Stop speaking" hidden aria-label="Stop speaking">&#128266;</button>
+      <button id="close" class="icon-btn" title="Close (Esc)" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="row">
+      <input id="entry" class="entry" type="text" autocomplete="off" spellcheck="false" placeholder="Ask FRIDAY about what's on your screen">
+      <button id="mic" class="icon-btn mic" title="Speak (Ctrl+M)" aria-label="Speak">&#127908;</button>
+    </div>
+    <div id="scroll" class="scroll" hidden>
+      <div id="question" class="question" hidden></div>
+      <div id="answer" class="answer"></div>
+    </div>
+  </div>
+  <canvas id="glow" class="glow"></canvas>
+</div>
+<script type="module" src="overlay.mjs"></script>
+</body>
+</html>

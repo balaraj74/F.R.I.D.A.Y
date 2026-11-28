@@ -115,3 +115,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   knowledgeArxiv: (query, maxResults) => ipcRenderer.invoke('knowledge:arxiv', query, maxResults),
   knowledgeAnalyzePdf: (path, maxPages) => ipcRenderer.invoke('knowledge:analyze-pdf', path, maxPages),
 });
+// First-run setup wizard bridge (handlers live in setup-ipc.cjs).
+contextBridge.exposeInMainWorld('fridaySetup', {
+  status: () => ipcRenderer.invoke('setup:status'),
+  plan: (choices) => ipcRenderer.invoke('setup:plan', choices),
+  start: (choices) => ipcRenderer.invoke('setup:start', choices),
+  retry: (id) => ipcRenderer.invoke('setup:retry', id),
+  skip: (id) => ipcRenderer.invoke('setup:skip', id),
+  cancel: () => ipcRenderer.invoke('setup:cancel'),
+  signIn: () => ipcRenderer.invoke('setup:signin'),
+  openLog: () => ipcRenderer.invoke('setup:open-log'),
+  onEvent: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('setup:event', handler);
+    return () => ipcRenderer.removeListener('setup:event', handler);
+  },
+});

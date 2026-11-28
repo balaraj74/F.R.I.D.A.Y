@@ -15,15 +15,20 @@ import sys
 import time
 from pathlib import Path
 
-from PIL import Image as PILImage
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from portal import KEYSYMS, Portal, PortalError, char_keysym, parse_combo  # noqa: E402
+IS_WINDOWS = sys.platform.startswith("win")
+if IS_WINDOWS:
+    # Windows: win_backend.py (mss + SendInput); the GNOME portal code below is not used.
+    import win_backend
+else:
+    from PIL import Image as PILImage
+
+    from portal import KEYSYMS, Portal, PortalError, char_keysym, parse_combo  # noqa: E402
 
 MAX_TYPE = 2000
 SETTLE_S = 0.45  # let the screen redraw before looking again
 
-portal = Portal()
+portal = None if IS_WINDOWS else Portal()
 # Size of the last image FRIDAY saw, so her coordinates can be mapped back to the screen.
 last_view: dict[str, int] = {}
 
@@ -146,7 +151,12 @@ def make_server():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "check":
+    if IS_WINDOWS:
+        if len(sys.argv) > 1 and sys.argv[1] == "check":
+            win_backend.check()
+        else:
+            win_backend.make_server().run()
+    elif len(sys.argv) > 1 and sys.argv[1] == "check":
         data, note = look()
         print(note, f"{len(data) // 1024} KB")
     else:

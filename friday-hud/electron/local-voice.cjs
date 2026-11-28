@@ -9,16 +9,32 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const plat = require('./platform.cjs');
 
 const VOICE_DIR = path.join(os.homedir(), '.friday', 'voice');
-const WHISPER_BIN = path.join(VOICE_DIR, 'whisper.cpp', 'build', 'bin', 'whisper-server');
-const WHISPER_MODEL = path.join(VOICE_DIR, 'whisper.cpp', 'models', 'ggml-small.en.bin');
+// Linux: built from source (build/bin). Windows: prebuilt release binary, which may sit in a few places.
+const WHISPER_BIN = plat.isWindows
+  ? [
+      ['whisper-server.exe'],
+      ['build', 'bin', 'whisper-server.exe'],
+      ['build', 'bin', 'Release', 'whisper-server.exe'],
+      ['Release', 'whisper-server.exe'],
+    ]
+      .map((parts) => path.join(VOICE_DIR, 'whisper.cpp', ...parts))
+      .find((p) => fs.existsSync(p)) || path.join(VOICE_DIR, 'whisper.cpp', 'whisper-server.exe')
+  : path.join(VOICE_DIR, 'whisper.cpp', 'build', 'bin', 'whisper-server');
+// A smaller model is used on CPU-only Windows machines when small.en was not installed.
+const WHISPER_MODEL = (plat.isWindows
+  ? ['ggml-small.en.bin', 'ggml-base.en.bin', 'ggml-tiny.en.bin']
+      .map((m) => path.join(VOICE_DIR, 'whisper.cpp', 'models', m))
+      .find((p) => fs.existsSync(p))
+  : null) || path.join(VOICE_DIR, 'whisper.cpp', 'models', 'ggml-small.en.bin');
 const WHISPER_VAD = path.join(VOICE_DIR, 'whisper.cpp', 'models', 'ggml-silero-v5.1.2.bin');
 const NODE_DIR = path.join(VOICE_DIR, 'node');
 const STT_PORT = 18950; // clear of the gateway's 18789-18793 and 18800-18899
 const VOICE_PORT = 18951;
 const SUPERTONIC_PORT = 18952;
-const SUPERTONIC_PY = path.join(VOICE_DIR, 'supertonic', 'venv', 'bin', 'python');
+const SUPERTONIC_PY = plat.venvPython(path.join(VOICE_DIR, 'supertonic', 'venv'));
 const SETTINGS_FILE = path.join(os.homedir(), '.friday', 'voice.json');
 
 // Sir's choice: Supertonic F1 (Bella as fallback) with the soft finish. ~/.friday/voice.json overrides.
@@ -59,6 +75,7 @@ function readSettings() {
 }
 
 function findNode() {
+  if (plat.isWindows) return 'node'; // resolved through PATH (node.exe)
   for (const p of ['/usr/local/bin/node', '/usr/bin/node']) if (fs.existsSync(p)) return p;
   return 'node';
 }
@@ -99,7 +116,7 @@ function createLocalVoice() {
     let restarts = 0;
     const start = () => {
       if (disposed) return;
-      const child = spawn(cmd, args, { ...opts, stdio: ['ignore', 'ignore', 'pipe'] });
+      const child = spawn(cmd, args, { ...opts, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
       procs[name] = child;
       let tail = '';
       child.stderr.on('data', (d) => { tail = (tail + d.toString()).slice(-2000); });
@@ -181,7 +198,7 @@ function createLocalVoice() {
       const child = execFile(
         'ffmpeg',
         ['-loglevel', 'error', '-i', 'pipe:0', '-ar', '16000', '-ac', '1', '-f', 'wav', 'pipe:1'],
-        { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 15000 },
+        { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 15000, windowsHide: true },
         (err, stdout) => (err ? reject(err) : resolve(stdout)),
       );
       child.stdin.end(input);
@@ -244,7 +261,7 @@ function createLocalVoice() {
       const child = execFile(
         'ffmpeg',
         ['-loglevel', 'error', '-f', 'wav', '-i', 'pipe:0', '-af', WARMTH, '-f', 'wav', 'pipe:1'],
-        { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 5000 },
+        { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 5000, windowsHide: true },
         (err, stdout) => (err || !stdout.length ? reject(err || new Error('empty')) : resolve(stdout)),
       );
       child.stdin.end(wav);
@@ -294,7 +311,11 @@ function createLocalVoice() {
           // already gone
         }
       }
-      for (const p of Object.values(procs)) p?.kill('SIGTERM');
+      for (const p of Object.values(procs)) {
+        if (!p) continue;
+        if (plat.isWindows) void plat.killTree(p.pid);
+        else p.kill('SIGTERM');
+      }
     },
   };
 }

@@ -1,0 +1,50 @@
+name: Windows native
+on:
+  push:
+    paths: ['install.ps1','src/winservice/**','quickbar/windows/**','mcp-servers/desktop/**','friday-hud/electron/**','friday-hud/voice/*.ps1','scripts/**','.github/workflows/windows-native.yml']
+  pull_request:
+    paths: ['install.ps1','src/winservice/**','quickbar/windows/**','mcp-servers/desktop/**','friday-hud/electron/**','friday-hud/voice/*.ps1','scripts/**']
+  workflow_dispatch:
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: PowerShell syntax check
+        shell: pwsh
+        run: |
+          foreach ($f in 'install.ps1','friday-hud/voice/setup-windows.ps1') {
+            $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f), [ref]$null, [ref]$errs) | Out-Null
+            if ($errs.Count) { $errs | ForEach-Object { Write-Error $_.Message }; exit 1 }
+          }
+      - name: Bootstrapper dry run
+        shell: pwsh
+        run: ./install.ps1 -DryRun -NoLaunch
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.23.0 --activate
+          pnpm install --frozen-lockfile
+      - name: Unit tests (Windows-relevant)
+        shell: pwsh
+        run: pnpm exec vitest run src/winservice quickbar friday-hud
+      - name: Desktop backend tests
+        shell: pwsh
+        run: |
+          python -m pip install pytest mss Pillow
+          python -m pytest tests/test_win_backend.py -q
+      - name: Supervisor task XML renders
+        shell: pwsh
+        run: node scripts/friday-service.mjs install --print-xml
+      - name: Real Win32 capture and DPI check
+        shell: pwsh
+        run: python mcp-servers/desktop/server.py check
+        continue-on-error: true

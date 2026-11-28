@@ -1,10 +1,26 @@
 ---
-summary: "Windows (WSL2) support + companion app status"
+summary: "Windows 11 native install, plus WSL2 as an alternative"
 read_when:
   - Installing FRIDAY on Windows
-  - Looking for Windows companion app status
 ---
-# Windows (WSL2)
+# Windows 11 (native)
+
+FRIDAY runs natively on Windows 11. WSL2 is not needed.
+
+Install: open PowerShell and run `irm https://raw.githubusercontent.com/<owner>/F.R.I.D.A.Y/main/install.ps1 | iex` (replace `<owner>` with the repository owner). SmartScreen may warn about the script; read it first if you like.
+
+The setup screen asks for the brain (Antigravity proxy; other models are coming soon), voice (Edge by default without an NVIDIA GPU, Supertonic GPU with one, or none) and computer-control consent. A Task Scheduler logon task then keeps the proxy, gateway, voice and quick bar running. Manage it with `node scripts/friday-service.mjs install|start|stop|status|uninstall`.
+
+Quick bar: shake the pointer four times or press Ctrl+Alt+Space. It works with the HUD closed. Stop computer control with Ctrl+Alt+Backspace.
+
+Limits: FRIDAY cannot control elevated (administrator) windows or the UAC prompt. Edge voice needs internet. See `windows-smoke.md` for the manual check list.
+
+---
+
+## WSL2 (alternative, CLI and gateway only)
+
+---
+
 
 FRIDAY on Windows is recommended **via WSL2** (Ubuntu recommended). The
 CLI + Gateway run inside Linux, which keeps the runtime consistent and makes
